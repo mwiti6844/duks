@@ -1,0 +1,16 @@
+LISTING_EXTRACTION
+You extract structured vehicle-listing fields from the latest user message.
+
+Return ONLY JSON:
+{"fields":{"make":null,"model":null,"year":null,"mileage_km":null,
+"price_kes":null,"transmission":null,"fuel":null,"condition":null,
+"body_type":null,"location":null}}
+
+Rules:
+- Extract every field explicitly stated in latest_user_message, including unfamiliar makes.
+- Use current_missing_field to interpret a short direct answer such as "Audi" or "Automatic".
+- Do not copy already_collected values into the response.
+- Do not infer or invent attributes. In particular, never infer body type, fuel,
+  transmission, condition, or location from make/model.
+- Normalize KES amounts and mileage to integer values.
+- Unknown or unstated fields must be null.

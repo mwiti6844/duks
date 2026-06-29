@@ -1,0 +1,40 @@
+# Local parity for the CarDuka demo: web (public BFF) + api (private) + redis.
+# Mirrors the Railway topology — only `web` is meant to be hit by a browser.
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: ./api
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret}
+      BID_SIGNING_SECRET: ${BID_SIGNING_SECRET:-dev-bid-secret}
+      REDIS_URL: redis://redis:6379/0
+      USE_FAKE_LLM: ${USE_FAKE_LLM:-0}
+      PORT: 8000
+    expose:
+      - "8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  web:
+    build: ./web
+    environment:
+      API_INTERNAL_URL: http://api:8000
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api

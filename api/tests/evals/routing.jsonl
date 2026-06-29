@@ -1,0 +1,24 @@
+{"message": "Find me a Subaru Forester under 2.5M", "intent": "discovery.search"}
+{"message": "Show cars below KES 1,500,000", "intent": "discovery.search"}
+{"message": "I'm looking for a Toyota Premio", "intent": "discovery.search"}
+{"message": "Compare the first two", "intent": "discovery.compare"}
+{"message": "Compare these two cars", "intent": "discovery.compare"}
+{"message": "Is the price fair?", "intent": "discovery.verdict"}
+{"message": "Is this Forester worth it?", "intent": "discovery.verdict"}
+{"message": "Show me auctions", "intent": "discovery.auctions"}
+{"message": "What auctions are live right now", "intent": "discovery.auctions"}
+{"message": "What would financing look like?", "intent": "transaction.financing"}
+{"message": "Calculate my monthly payment", "intent": "transaction.financing"}
+{"message": "Bid 1.8M on the Forester", "intent": "transaction.bid"}
+{"message": "Place a bid of 950000", "intent": "transaction.bid"}
+{"message": "How do auctions work?", "intent": "rag.knowledge"}
+{"message": "Am I eligible for financing?", "intent": "rag.knowledge"}
+{"message": "Explain the trade-in process", "intent": "rag.knowledge"}
+{"message": "Hi, what can you do for me?", "intent": "profile.summary"}
+{"message": "Show me my active bids", "intent": "profile.summary"}
+{"message": "I want to sell my car", "intent": "listings.sell"}
+{"message": "Sell my Fielder", "intent": "listings.sell"}
+{"message": "List my car for sale", "intent": "listings.sell"}
+{"message": "How do I sell a car on CarDuka?", "intent": "rag.knowledge"}
+{"message": "How does CarDuka vehicle insurance work?", "intent": "rag.knowledge"}
+{"message": "How does CarDuka dealership financing work?", "intent": "rag.knowledge"}

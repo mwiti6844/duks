@@ -1,0 +1,6 @@
+{"message": "Find me a Subaru Forester under 2.5M", "expect_tool": "search_cars"}
+{"message": "Show me auctions", "expect_tool": "list_auctions"}
+{"message": "What would financing look like?", "expect_no_tool": true, "expect_text": "tell me its price"}
+{"message": "Calculate financing for a KES 2.5M car", "expect_tool": "compute_financing"}
+{"message": "How do auctions work?", "expect_tool": "rag_retrieve"}
+{"message": "Hi there", "expect_tool": "load_profile"}

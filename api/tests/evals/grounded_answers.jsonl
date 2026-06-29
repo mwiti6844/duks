@@ -1,0 +1,6 @@
+{"message": "How do auctions work?", "expect_source_prefix": "kb_", "should_answer": true}
+{"message": "Am I eligible for financing?", "expect_source_prefix": "kb_", "should_answer": true}
+{"message": "How does the trade-in process work?", "expect_source_prefix": "kb_", "should_answer": true}
+{"message": "How does CarDuka vehicle insurance work?", "expect_source_prefix": "kb_", "should_answer": true}
+{"message": "How does CarDuka dealership financing work?", "expect_source_prefix": "kb_", "should_answer": true}
+{"message": "What is CarDuka's policy on interplanetary shipping to Mars?", "expect_source_prefix": null, "should_answer": false}
