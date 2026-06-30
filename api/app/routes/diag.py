@@ -17,14 +17,14 @@ _PROBE_QUERY = "How do auctions work?"
 
 
 @router.get("/_diag/rag")
-def diag_rag(request: Request) -> dict:
+def diag_rag(request: Request, q: str = _PROBE_QUERY) -> dict:
     rag = request.app.state.rag
-    chunks = rag.retrieve(_PROBE_QUERY, k=3)
+    chunks = rag.retrieve(q, k=3)
     return {
         "store": type(rag).__name__,
         "ready": getattr(rag, "ready", None),
         "thread": threading.current_thread().name,
-        "query": _PROBE_QUERY,
+        "query": q,
         "retrieved": [
             {"source_id": c.source_id, "score": c.score} for c in chunks
         ],
