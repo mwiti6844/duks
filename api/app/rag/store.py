@@ -27,9 +27,9 @@ class RagStore:
     def __init__(self) -> None:
         self._collection = None
         self._ready = False
-        # Last query-time failure (exception class + message), surfaced via the
-        # /api/_diag/rag endpoint so production retrieval failures are observable
-        # instead of vanishing into a swallowed [] result.
+        # Last query-time failure (exception class + message). Surfaced in the
+        # readiness probe's failure message (factory.py) so a broken retrieval
+        # runtime names its cause instead of vanishing into a swallowed [] result.
         self._last_error: str | None = None
 
     def initialize(self) -> None:

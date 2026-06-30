@@ -16,10 +16,7 @@ class BrokenRag:
         return []
 
 
-def test_readiness_stays_up_when_rag_cannot_retrieve():
-    # TEMPORARY: while diagnosing the production RAG outage the readiness probe
-    # is non-fatal so the deploy promotes and /api/_diag/rag stays reachable.
-    # Restore the fatal probe (and the 503/error assertion) once resolved.
+def test_readiness_fails_when_rag_cannot_retrieve():
     app = create_app(
         llm_provider=FakeProvider(),
         rag_store=BrokenRag(),
@@ -27,5 +24,5 @@ def test_readiness_stays_up_when_rag_cannot_retrieve():
         eager_init=True,
     )
     response = TestClient(app).get("/api/health")
-    assert response.status_code == 200
-    assert response.json()["status"] == "ready"
+    assert response.status_code == 503
+    assert response.json()["status"] == "error"

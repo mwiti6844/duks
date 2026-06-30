@@ -25,7 +25,6 @@ from .rag.store import RagStore
 from .routes.bids import router as bids_router
 from .routes.catalog import router as catalog_router
 from .routes.chat import router as chat_router
-from .routes.diag import router as diag_router
 from .routes.financing import router as financing_router
 from .routes.health import router as health_router
 from .routes.listings import router as listings_router
@@ -47,17 +46,15 @@ def _background_init(app: FastAPI) -> None:
         with SessionLocal() as db:
             seed_all(db)
         app.state.rag.initialize()
-        # Readiness normally requires retrieval to work, not merely that Chroma
-        # accepted inserts. TEMPORARILY non-fatal while we diagnose the production
-        # RAG outage: a failing probe must NOT block the deploy, or Railway's
-        # healthcheck would fail and the /api/_diag/rag endpoint would be
-        # unreachable. Restore the raise once the outage is resolved.
+        # Readiness means retrieval works, not merely that Chroma accepted inserts.
+        # A failing probe must block the deploy so Railway's healthcheck fails and
+        # the bad build is NOT promoted, rather than silently serving empty
+        # retrievals (the production outage this guards against). The captured
+        # last_error names the underlying failure.
         if not app.state.rag.retrieve("How does vehicle insurance work?", k=1):
-            import logging
-
-            logging.getLogger(__name__).error(
-                "RAG readiness probe returned no chunks (last_error=%s)",
-                getattr(app.state.rag, "last_error", None),
+            raise RuntimeError(
+                "RAG initialized but failed its retrieval readiness probe "
+                f"(last_error={app.state.rag.last_error})"
             )
         app.state.readiness.mark_ready()
     except Exception as exc:  # pragma: no cover - surfaced via /api/health
@@ -103,7 +100,6 @@ def create_app(
     app.state.graph = build_graph()
 
     app.include_router(health_router)
-    app.include_router(diag_router)
     app.include_router(auth_router)
     app.include_router(catalog_router)
     app.include_router(chat_router)
