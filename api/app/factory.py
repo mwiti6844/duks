@@ -47,10 +47,18 @@ def _background_init(app: FastAPI) -> None:
         with SessionLocal() as db:
             seed_all(db)
         app.state.rag.initialize()
-        # Readiness means retrieval works, not merely that Chroma accepted inserts.
-        # This catches broken embedding/query runtimes before Railway promotes a deploy.
+        # Readiness normally requires retrieval to work, not merely that Chroma
+        # accepted inserts. TEMPORARILY non-fatal while we diagnose the production
+        # RAG outage: a failing probe must NOT block the deploy, or Railway's
+        # healthcheck would fail and the /api/_diag/rag endpoint would be
+        # unreachable. Restore the raise once the outage is resolved.
         if not app.state.rag.retrieve("How does vehicle insurance work?", k=1):
-            raise RuntimeError("RAG initialized but failed its retrieval readiness probe")
+            import logging
+
+            logging.getLogger(__name__).error(
+                "RAG readiness probe returned no chunks (last_error=%s)",
+                getattr(app.state.rag, "last_error", None),
+            )
         app.state.readiness.mark_ready()
     except Exception as exc:  # pragma: no cover - surfaced via /api/health
         app.state.readiness.mark_error(str(exc))
