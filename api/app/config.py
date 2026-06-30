@@ -19,6 +19,9 @@ class Settings:
     bid_signing_secret: str
     redis_url: str | None
     allow_in_memory_sessions: bool
+    cloudinary_cloud_name: str | None
+    cloudinary_api_key: str | None
+    cloudinary_api_secret: str | None
     # When True, the LLM layer uses a deterministic fake (tests / keyless demo).
     use_fake_llm: bool
 
@@ -62,5 +65,8 @@ def load_settings(*, allow_fake: bool = False) -> Settings:
                 or bool(os.getenv("RAILWAY_ENVIRONMENT"))
             )
         ),
+        cloudinary_cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME") or None,
+        cloudinary_api_key=os.getenv("CLOUDINARY_API_KEY") or None,
+        cloudinary_api_secret=os.getenv("CLOUDINARY_API_SECRET") or None,
         use_fake_llm=use_fake_llm,
     )

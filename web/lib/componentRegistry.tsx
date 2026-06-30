@@ -8,6 +8,9 @@ import FinancingCalculator from "@/components/generative/FinancingCalculator";
 import FollowUpSuggestions from "@/components/generative/FollowUpSuggestions";
 import KnowledgeAnswer from "@/components/generative/KnowledgeAnswer";
 import ListingSummary from "@/components/generative/ListingSummary";
+import ListingProgress from "@/components/generative/ListingProgress";
+import ListingPriceGuidance from "@/components/generative/ListingPriceGuidance";
+import ListingPublishReceipt from "@/components/generative/ListingPublishReceipt";
 import PriceVerdictCard from "@/components/generative/PriceVerdictCard";
 
 import type { FollowUpSuggestion, GenComponent, UIAction } from "./types";
@@ -39,6 +42,12 @@ export function renderComponent(
       return <KnowledgeAnswer key={key} {...(p as Parameters<typeof KnowledgeAnswer>[0])} />;
     case "listing_summary":
       return <ListingSummary key={key} {...(p as Parameters<typeof ListingSummary>[0])} />;
+    case "listing_progress":
+      return <ListingProgress key={key} {...(p as Parameters<typeof ListingProgress>[0])} />;
+    case "listing_price_guidance":
+      return <ListingPriceGuidance key={key} guidance={c.props} />;
+    case "listing_publish_receipt":
+      return <ListingPublishReceipt key={key} listingId={(c.props as { listing_id: string }).listing_id} created={(c.props as { created: boolean }).created} operation={(c.props as { operation: "create" | "edit" }).operation} />;
     case "follow_up_suggestions":
       return (
         <FollowUpSuggestions

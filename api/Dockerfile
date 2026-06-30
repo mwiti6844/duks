@@ -18,6 +18,8 @@ RUN python -c "from chromadb.utils.embedding_functions import DefaultEmbeddingFu
     DefaultEmbeddingFunction()(['warm cache'])"
 
 COPY app ./app
+COPY alembic.ini ./
+COPY migrations ./migrations
 
 EXPOSE 8000
 # Railway provides $PORT; default 8000 for local.

@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -74,6 +75,67 @@ class UsedCarListing(Base):
     # Idempotency for the confirm gate: one persisted listing per signed draft (multiple
     # NULLs allowed under SQLite UNIQUE; only non-null draft ids must be unique).
     source_draft_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
+class ListingDraft(Base):
+    """Durable source of truth for create/edit listing conversations."""
+    __tablename__ = "listing_drafts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    mode: Mapped[str] = mapped_column(String, default="create")  # create | edit
+    target_listing_id: Mapped[str | None] = mapped_column(
+        ForeignKey("used_car_listings.id"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String, default="collecting", index=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    fields_json: Mapped[str] = mapped_column(Text, default="{}")
+    validation_json: Mapped[str] = mapped_column(Text, default="[]")
+    guidance_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
+class ListingImage(Base):
+    __tablename__ = "listing_images"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    draft_id: Mapped[str | None] = mapped_column(
+        ForeignKey("listing_drafts.id"), nullable=True, index=True
+    )
+    listing_id: Mapped[str | None] = mapped_column(
+        ForeignKey("used_car_listings.id"), nullable=True, index=True
+    )
+    cloudinary_public_id: Mapped[str] = mapped_column(String, unique=True)
+    secure_url: Mapped[str] = mapped_column(String)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ListingMutation(Base):
+    """Idempotency receipt for both create and edit confirmations."""
+    __tablename__ = "listing_mutations"
+    __table_args__ = (
+        UniqueConstraint("draft_id", "revision", name="uq_listing_mutation_revision"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    draft_id: Mapped[str] = mapped_column(String, index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    listing_id: Mapped[str] = mapped_column(ForeignKey("used_car_listings.id"))
+    operation: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class AuctionListing(Base):

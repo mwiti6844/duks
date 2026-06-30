@@ -143,6 +143,20 @@ owner-scoped SQLite row exactly once. The UI displays the resulting listing id. 
 returns to the six starting cards without ending the session; **Exit** signs out and
 returns to the demo-user chooser.
 
+### Guided listing workflow
+
+Sell-car drafts autosave durably to SQLite and cache their active conversational state in
+Redis. The flow collects verified vehicle details and an honest description, shows
+completion progress, performs deterministic validation, and provides advisory price
+guidance from sold comparables. Users can edit the review, optionally upload up to 12
+JPEG/PNG/WebP photos through signed Cloudinary uploads, save and resume, then publish
+through a revision-bound confirmation gate. Published listings are available under
+`/my-listings` and edits require a new review and confirmation.
+
+Schema changes are versioned under `api/migrations`; startup runs Alembic before seeding.
+Set `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` to enable
+photos. Photos remain optional when Cloudinary is not configured.
+
 The web UI uses CarDuka's public brand mark and core palette: yellow `#FECE2D`, ink
 `#0E0E0B`, red `#FF000D`, neutral surfaces, and accessible dark text on yellow controls.
 

@@ -13,6 +13,9 @@ from datetime import datetime, timezone
 from collections.abc import Callable
 
 from .. import listingsign
+from ..db import repositories as repo
+from ..listing_pricing import price_guidance
+from ..listing_validation import blocking_issues, completion, validate_listing
 from ..prompts import load_prompt
 from .deps import Deps
 from .events import ComponentReady, TextDelta, ToolCompleted, ToolStarted, Trace
@@ -24,7 +27,7 @@ Emit = Callable[[object], None]
 # attributes; image_url remains optional and uses a visual placeholder when absent.
 _SLOTS = (
     "make", "model", "year", "mileage_km", "price_kes", "transmission",
-    "fuel", "condition", "body_type", "location",
+    "fuel", "condition", "body_type", "location", "description",
 )
 
 _ASK = {
@@ -38,6 +41,10 @@ _ASK = {
     "condition": "How would you describe its condition?",
     "body_type": "What body type is it (for example SUV, sedan, or hatchback)?",
     "location": "Where is the car located?",
+    "description": (
+        "Tell me a few honest details for the description—features, maintenance, "
+        "condition notes, or anything a buyer should know."
+    ),
 }
 
 
@@ -89,11 +96,22 @@ def _extract_fields(message: str, current: str | None, fields: dict, deps: Deps)
 def handle_sell(state: GraphState, deps: Deps, emit: Emit) -> None:
     sid = state["session_id"]
     owner_id = state["user_id"]
-    draft = deps.sessions.get_listing_draft(sid) or {
-        "draft_id": listingsign.new_draft_id(),
-        "fields": {},
-        "status": "collecting",
-    }
+    cached = deps.sessions.get_listing_draft(sid)
+    with deps.db_factory() as db:
+        durable = (
+            repo.get_listing_draft(db, cached["draft_id"], owner_id)
+            if cached and cached.get("draft_id")
+            else None
+        )
+        draft = repo.listing_draft_payload(db, durable) if durable else {
+            "draft_id": listingsign.new_draft_id(),
+            "fields": {},
+            "status": "collecting",
+            "revision": 1,
+            "mode": "create",
+            "target_listing_id": None,
+            "images": [],
+        }
     fields = dict(draft.get("fields", {}))
 
     current = _next_missing(fields)
@@ -103,21 +121,43 @@ def handle_sell(state: GraphState, deps: Deps, emit: Emit) -> None:
         parsed, prompt_version = _extract_fields(state["message"], current, fields, deps)
     except Exception:
         parsed, prompt_version = {}, "listings.v1"
-    fields.update({k: v for k, v in parsed.items() if v not in (None, "", 0)})
+    changes = {k: v for k, v in parsed.items() if v not in (None, "", 0)}
+    changed = any(fields.get(key) != value for key, value in changes.items())
+    fields.update(changes)
     emit(ToolCompleted(name="extract_listing_fields", ms=int((time.time() - t0) * 1000),
                        detail={"filled": [s for s in _SLOTS if fields.get(s)]}))
     emit(Trace(kind="prompt", label="prompt_version", detail={"version": prompt_version}))
 
     missing = _next_missing(fields)
     if missing:
-        draft["fields"] = fields
-        draft["status"] = "collecting"
+        progress, missing_fields = completion(fields)
+        issues = validate_listing(fields, image_count=len(draft.get("images", [])))
+        with deps.db_factory() as db:
+            row = repo.save_listing_draft(
+                db,
+                draft_id=draft["draft_id"],
+                owner_id=owner_id,
+                fields=fields,
+                status="collecting",
+                validation=issues,
+                guidance={},
+                mode=draft.get("mode", "create"),
+                target_listing_id=draft.get("target_listing_id"),
+                increment_revision=changed and bool(durable),
+            )
+            draft = repo.listing_draft_payload(db, row)
         deps.sessions.save_listing_draft(sid, draft)
         ack = "Got it. " if parsed else ""
+        emit(ComponentReady(type="listing_progress", props={
+            "draft_id": draft["draft_id"],
+            "percent": progress,
+            "missing_fields": missing_fields,
+            "status": "collecting",
+        }))
         emit(TextDelta(text=f"{ack}{_ASK[missing]}"))
         return
 
-    # All user-supplied slots collected → sign and present the summary.
+    # All user-supplied slots collected → validate, price, persist, sign and review.
     full = {
         "make": fields["make"],
         "model": fields["model"],
@@ -129,13 +169,40 @@ def handle_sell(state: GraphState, deps: Deps, emit: Emit) -> None:
         "condition": fields["condition"],
         "body_type": fields["body_type"],
         "location": fields["location"],
+        "description": fields["description"],
         "image_url": "",
     }
+    with deps.db_factory() as db:
+        guidance = price_guidance(db, full)
+        issues = validate_listing(full, image_count=len(draft.get("images", [])))
+        status = "ready_to_publish" if not blocking_issues(issues) else "needs_review"
+        row = repo.save_listing_draft(
+            db,
+            draft_id=draft["draft_id"],
+            owner_id=owner_id,
+            fields=full,
+            status=status,
+            validation=issues,
+            guidance=guidance,
+            mode=draft.get("mode", "create"),
+            target_listing_id=draft.get("target_listing_id"),
+            increment_revision=changed and bool(durable),
+        )
+        draft = repo.listing_draft_payload(db, row)
+    image_ids = [image["id"] for image in draft.get("images", [])]
     signed = listingsign.make_signed_draft(
         deps.settings.bid_signing_secret,
-        listingsign.create_draft(owner_id=owner_id, fields=full, draft_id=draft["draft_id"]),
+        listingsign.create_draft(
+            owner_id=owner_id,
+            fields=full,
+            draft_id=draft["draft_id"],
+            revision=draft["revision"],
+            mode=draft["mode"],
+            target_listing_id=draft.get("target_listing_id"),
+            image_ids=image_ids,
+        ),
     )
-    draft.update({"fields": full, "status": "ready", "signed": signed})
+    draft.update({"fields": full, "signed": signed})
     deps.sessions.save_listing_draft(sid, draft)
     emit(Trace(kind="routing", label="listing_ready", detail={"draft_id": draft["draft_id"]}))
 
@@ -143,6 +210,13 @@ def handle_sell(state: GraphState, deps: Deps, emit: Emit) -> None:
         "draft_id": draft["draft_id"],
         **full,
         "signed_draft": signed,
+        "revision": draft["revision"],
+        "status": draft["status"],
+        "progress": 100,
+        "validation": draft["validation"],
+        "guidance": draft["guidance"],
+        "images": draft["images"],
+        "mode": draft["mode"],
     }))
     emit(TextDelta(text=(
         f"Here's your {full['year']} {full['make']} {full['model']} listing at "

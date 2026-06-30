@@ -53,24 +53,36 @@ def confirm_listing(
     if draft.owner_id != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Draft does not belong to you")
 
-    # 3) already persisted? return the existing receipt without needing the Redis draft
-    existing = repo.get_listing_by_draft_id(db, draft.draft_id)
-    if existing:
+    # 3) already applied? return the existing receipt without needing Redis.
+    mutation = repo.get_listing_mutation(db, draft.draft_id, draft.revision)
+    if mutation:
+        existing = repo.get_used_car(db, mutation.listing_id)
         sessions.clear_listing_draft(sid)
         return ConfirmListingResponse(listing=existing, created=False)
 
-    # 4) otherwise require a matching, ready, user-scoped Redis draft
-    stored = sessions.get_listing_draft(sid)
-    if not stored or stored.get("status") != "ready" or stored.get("draft_id") != draft.draft_id:
+    # 4) SQLite is authoritative; Redis is only the active-session cache.
+    durable = repo.get_listing_draft(db, draft.draft_id, user.id)
+    if durable is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "No matching listing draft to confirm")
-    stored_fields = stored.get("fields", {})
-    if any(stored_fields.get(f) != draft.fields.get(f) for f in listingsign.LISTING_FIELDS):
+    stored = repo.listing_draft_payload(db, durable)
+    if stored["status"] != "ready_to_publish":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Listing is not ready to publish")
+    if stored["revision"] != draft.revision:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Listing draft has changed; review it again")
+    if stored["mode"] != draft.mode or stored["target_listing_id"] != draft.target_listing_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Draft operation does not match")
+    if any(stored["fields"].get(f) != draft.fields.get(f) for f in listingsign.LISTING_FIELDS):
         raise HTTPException(status.HTTP_409_CONFLICT, "Draft fields do not match")
+    if [image["id"] for image in stored["images"]] != list(draft.image_ids):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Draft photos have changed")
 
-    # 5) idempotent insert (unique source_draft_id), then clear the draft
-    listing, created = repo.create_listing(
-        db, owner_id=user.id, draft_id=draft.draft_id, fields=draft.fields
-    )
+    # 5) Apply create/edit exactly once for this draft revision.
+    try:
+        listing, created = repo.apply_listing_draft(
+            db, durable, image_ids=list(draft.image_ids)
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
     sessions.clear_listing_draft(sid)
     return ConfirmListingResponse(listing=listing, created=created)
 
@@ -80,9 +92,20 @@ def cancel_listing(
     body: CancelListingRequest,
     request: Request,
     user: UserDTO = Depends(get_current_user),
+    db: Session = Depends(get_session),
 ) -> dict:
     sessions = request.app.state.sessions
-    sessions.clear_listing_draft(sessions.scoped_id(user.id, body.session_id))
+    sid = sessions.scoped_id(user.id, body.session_id)
+    cached = sessions.get_listing_draft(sid)
+    durable = (
+        repo.get_listing_draft(db, cached["draft_id"], user.id)
+        if cached and cached.get("draft_id")
+        else None
+    )
+    if durable:
+        durable.status = "cancelled"
+        db.commit()
+    sessions.clear_listing_draft(sid)
     return {"ok": True}
 
 
@@ -92,3 +115,15 @@ def my_listings(
     db: Session = Depends(get_session),
 ) -> list[UsedCarDTO]:
     return repo.list_user_listings(db, user.id)
+
+
+@router.get("/listings/{listing_id}", response_model=UsedCarDTO)
+def listing_detail(
+    listing_id: str,
+    user: UserDTO = Depends(get_current_user),
+    db: Session = Depends(get_session),
+) -> UsedCarDTO:
+    listing = repo.get_used_car(db, listing_id)
+    if listing is None or (listing.owner_id is not None and listing.owner_id != user.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Listing not found")
+    return listing

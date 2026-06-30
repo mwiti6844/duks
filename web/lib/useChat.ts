@@ -138,8 +138,8 @@ export function useChat() {
               tools: [],
             });
           }
-          if (data.listing_draft && data.listing_draft.status === "ready") {
-            // Resume an unpublished sell flow after a refresh.
+          if (data.listing_draft && data.listing_draft.status === "ready_to_publish") {
+            // Resume an unpublished reviewed sell flow after a refresh.
             const d = data.listing_draft;
             restored.push({
               id: uid(),
@@ -148,9 +148,42 @@ export function useChat() {
               components: [
                 {
                   type: "listing_summary",
-                  props: { ...d.fields, draft_id: d.draft_id, signed_draft: d.signed, restored: true },
+                  props: {
+                    ...d.fields,
+                    draft_id: d.draft_id,
+                    signed_draft: d.signed,
+                    revision: d.revision,
+                    status: d.status,
+                    progress: 100,
+                    validation: d.validation || [],
+                    guidance: d.guidance || {},
+                    images: d.images || [],
+                    mode: d.mode || "create",
+                    restored: true,
+                  },
                 },
               ],
+              trace: [],
+              tools: [],
+            });
+          } else if (data.listing_draft && data.listing_draft.status === "collecting") {
+            const d = data.listing_draft;
+            const missing = Object.entries(d.fields || {})
+              .filter(([, value]) => !value)
+              .map(([key]) => key);
+            restored.push({
+              id: uid(),
+              role: "assistant",
+              text: "Your saved listing draft is ready to continue. Tell me the next detail when you are ready.",
+              components: [{
+                type: "listing_progress",
+                props: {
+                  draft_id: d.draft_id,
+                  percent: d.progress || 0,
+                  missing_fields: d.missing_fields || missing,
+                  status: d.status,
+                },
+              }],
               trace: [],
               tools: [],
             });

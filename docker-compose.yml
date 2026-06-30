@@ -22,6 +22,9 @@ services:
       BID_SIGNING_SECRET: ${BID_SIGNING_SECRET:-dev-bid-secret}
       REDIS_URL: redis://redis:6379/0
       USE_FAKE_LLM: ${USE_FAKE_LLM:-0}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
       PORT: 8000
     expose:
       - "8000"

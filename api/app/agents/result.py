@@ -23,6 +23,9 @@ class ComponentType(str, Enum):
     PRICE_VERDICT = "price_verdict"
     KNOWLEDGE_ANSWER = "knowledge_answer"
     LISTING_SUMMARY = "listing_summary"
+    LISTING_PROGRESS = "listing_progress"
+    LISTING_PRICE_GUIDANCE = "listing_price_guidance"
+    LISTING_PUBLISH_RECEIPT = "listing_publish_receipt"
     FOLLOW_UP_SUGGESTIONS = "follow_up_suggestions"
 
 
@@ -145,7 +148,26 @@ class SignedListingDraftProps(_StrictProps):
     owner_id: str
     fields: dict[str, Any]
     expires_at: int
+    revision: int
+    mode: str
+    target_listing_id: str | None = None
+    image_ids: list[str]
     signature: str
+
+
+class ListingIssueProps(_StrictProps):
+    field: str
+    level: Literal["error", "warning"]
+    message: str
+
+
+class ListingImageProps(_StrictProps):
+    id: str
+    public_id: str
+    secure_url: str
+    width: int | None = None
+    height: int | None = None
+    sort_order: int
 
 
 class ListingSummaryProps(_StrictProps):
@@ -161,7 +183,37 @@ class ListingSummaryProps(_StrictProps):
     body_type: str
     location: str
     image_url: str
+    description: str
     signed_draft: SignedListingDraftProps
+    revision: int = Field(ge=1)
+    status: Literal["needs_review", "ready_to_publish"]
+    progress: int = Field(ge=0, le=100)
+    validation: list[ListingIssueProps]
+    guidance: dict[str, Any]
+    images: list[ListingImageProps]
+    mode: Literal["create", "edit"]
+
+
+class ListingProgressProps(_StrictProps):
+    draft_id: str
+    percent: int = Field(ge=0, le=100)
+    missing_fields: list[str]
+    status: str
+
+
+class ListingPriceGuidanceProps(_StrictProps):
+    status: str
+    low_kes: int | None = None
+    median_kes: int | None = None
+    high_kes: int | None = None
+    evidence: list[dict[str, Any]]
+    advisory_only: bool = True
+
+
+class ListingPublishReceiptProps(_StrictProps):
+    listing_id: str
+    created: bool
+    operation: Literal["create", "edit"]
 
 
 class FollowUpSuggestionProps(_StrictProps):
@@ -205,6 +257,9 @@ _PROP_MODELS: dict[ComponentType, type[BaseModel]] = {
     ComponentType.PRICE_VERDICT: PriceVerdictProps,
     ComponentType.KNOWLEDGE_ANSWER: KnowledgeAnswerProps,
     ComponentType.LISTING_SUMMARY: ListingSummaryProps,
+    ComponentType.LISTING_PROGRESS: ListingProgressProps,
+    ComponentType.LISTING_PRICE_GUIDANCE: ListingPriceGuidanceProps,
+    ComponentType.LISTING_PUBLISH_RECEIPT: ListingPublishReceiptProps,
     ComponentType.FOLLOW_UP_SUGGESTIONS: FollowUpSuggestionsProps,
 }
 

@@ -63,11 +63,14 @@ def _listing_props(**over):
         "draft_id": "draft_x", "make": "Toyota", "model": "Fielder", "year": 2016,
         "price_kes": 1_400_000, "mileage_km": 120_000, "transmission": "Automatic",
         "fuel": "Petrol", "condition": "Good", "body_type": "Station Wagon",
-        "location": "Kiambu", "image_url": "",
+        "location": "Kiambu", "image_url": "", "description": "Well maintained.",
         "signed_draft": {
             "draft_id": "draft_x", "owner_id": "usr_sarah", "fields": {},
-            "expires_at": 9999999999, "signature": "abc",
+            "expires_at": 9999999999, "revision": 1, "mode": "create",
+            "target_listing_id": None, "image_ids": [], "signature": "abc",
         },
+        "revision": 1, "status": "ready_to_publish", "progress": 100,
+        "validation": [], "guidance": {}, "images": [], "mode": "create",
     }
     base.update(over)
     return base

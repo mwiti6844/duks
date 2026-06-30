@@ -16,7 +16,12 @@ def _sell_to_ready(client, auth, sid: str) -> dict:
     sse.chat(client, auth, "Petrol", sid)
     sse.chat(client, auth, "Good", sid)
     sse.chat(client, auth, "Station Wagon", sid)
-    events = sse.chat(client, auth, "Kiambu", sid)
+    sse.chat(client, auth, "Kiambu", sid)
+    events = sse.chat(
+        client, auth,
+        "Well maintained family car with regular servicing and a clean interior.",
+        sid,
+    )
     summary = next(c for c in sse.components(events) if c["type"] == "listing_summary")
     return summary["props"]
 
@@ -26,8 +31,8 @@ def test_multi_slot_first_turn_fills_make_model_year(client, auth):
     events = sse.chat(client, auth, "Sell my 2016 Toyota Fielder", sid)
     # make+model+year captured in one turn → it should now ask for mileage, not year/make.
     assert "kilomet" in sse.text(events).lower()
-    # Component appears only once all five slots are filled.
-    assert not sse.components(events)
+    assert any(c["type"] == "listing_progress" for c in sse.components(events))
+    assert not any(c["type"] == "listing_summary" for c in sse.components(events))
 
 
 def test_full_flow_streams_listing_summary(client, auth):
@@ -113,7 +118,13 @@ def test_confirm_rejects_mismatch_in_defaulted_listing_fields(client, auth):
     props = _sell_to_ready(client, auth, sid)
     signed = dict(props["signed_draft"])
     signed["fields"] = {**signed["fields"], "location": "Mombasa"}
-    payload = {k: signed[k] for k in ("draft_id", "owner_id", "fields", "expires_at")}
+    payload = {
+        k: signed[k]
+        for k in (
+            "draft_id", "owner_id", "fields", "expires_at", "revision", "mode",
+            "target_listing_id", "image_ids",
+        )
+    }
     signed["signature"] = listingsign.sign("test-bid-secret", payload)
 
     resp = client.post("/api/listings/confirm", headers=auth,

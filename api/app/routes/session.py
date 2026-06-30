@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from ..auth.deps import get_current_user
+from .. import listingsign
 from ..db import repositories as repo
 from ..db.dto import UserDTO
 from ..db.engine import get_session
+from ..listing_validation import completion
 
 router = APIRouter(prefix="/api/session", tags=["session"])
 
@@ -22,6 +24,33 @@ def bootstrap(
 ) -> dict:
     sessions = request.app.state.sessions
     sid = sessions.scoped_id(user.id, session_id)
+    cached_draft = sessions.get_listing_draft(sid)
+    durable = (
+        repo.get_listing_draft(db, cached_draft["draft_id"], user.id)
+        if cached_draft and cached_draft.get("draft_id")
+        else repo.latest_listing_draft(db, user.id)
+    )
+    cached_draft = repo.listing_draft_payload(db, durable) if durable else None
+    if cached_draft:
+        sessions.save_listing_draft(sid, cached_draft)
+    if cached_draft and cached_draft.get("status") == "ready_to_publish" \
+            and not cached_draft.get("signed"):
+        cached_draft["signed"] = listingsign.make_signed_draft(
+            request.app.state.settings.bid_signing_secret,
+            listingsign.create_draft(
+                owner_id=user.id,
+                fields=cached_draft["fields"],
+                draft_id=cached_draft["draft_id"],
+                revision=cached_draft["revision"],
+                mode=cached_draft.get("mode", "create"),
+                target_listing_id=cached_draft.get("target_listing_id"),
+                image_ids=[image["id"] for image in cached_draft.get("images", [])],
+            ),
+        )
+    if cached_draft:
+        percent, missing = completion(cached_draft.get("fields", {}))
+        cached_draft["progress"] = percent
+        cached_draft["missing_fields"] = missing
     return {
         "user": user.model_dump(),
         "history": sessions.get_history(sid),
@@ -33,5 +62,5 @@ def bootstrap(
         "last_result": sessions.get_last_result(sid),
         # Resume an unfinished sell flow: surface a ready draft's listing_summary, or a
         # plain flag the UI can use to prompt the seller to continue.
-        "listing_draft": sessions.get_listing_draft(sid),
+        "listing_draft": cached_draft,
     }

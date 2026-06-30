@@ -61,6 +61,12 @@ export default function ChatWindow() {
               ← Journeys
             </button>
           )}
+          <a
+            href="/my-listings"
+            className="hidden rounded-lg border border-card-border px-3 py-1 text-xs text-muted hover:bg-brand/10 sm:inline"
+          >
+            My listings
+          </a>
           <button
             onClick={exitToUsers}
             className="rounded-lg border border-card-border px-3 py-1 text-xs text-muted hover:bg-brand/10"

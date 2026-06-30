@@ -274,3 +274,188 @@ def create_listing(
         raise
     db.refresh(row)
     return UsedCarDTO.model_validate(row), True
+
+
+# ── Durable listing drafts / images / revision receipts ──
+def get_listing_draft(db: Session, draft_id: str, owner_id: str):
+    return db.scalar(select(models.ListingDraft).where(
+        models.ListingDraft.id == draft_id,
+        models.ListingDraft.owner_id == owner_id,
+    ))
+
+
+def latest_listing_draft(db: Session, owner_id: str):
+    return db.scalar(
+        select(models.ListingDraft)
+        .where(
+            models.ListingDraft.owner_id == owner_id,
+            models.ListingDraft.status.in_(("collecting", "needs_review", "ready_to_publish")),
+        )
+        .order_by(models.ListingDraft.updated_at.desc())
+    )
+
+
+def save_listing_draft(
+    db: Session, *, draft_id: str, owner_id: str, fields: dict,
+    status: str, validation: list[dict], guidance: dict,
+    mode: str = "create", target_listing_id: str | None = None,
+    increment_revision: bool = False,
+):
+    row = get_listing_draft(db, draft_id, owner_id)
+    if row is None:
+        row = models.ListingDraft(
+            id=draft_id, owner_id=owner_id, mode=mode,
+            target_listing_id=target_listing_id,
+        )
+        db.add(row)
+    elif increment_revision:
+        row.revision += 1
+    row.fields_json = json.dumps(fields)
+    row.status = status
+    row.validation_json = json.dumps(validation)
+    row.guidance_json = json.dumps(guidance)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def listing_draft_payload(db: Session, row) -> dict:
+    images = list_listing_images(db, row.id, row.owner_id)
+    return {
+        "draft_id": row.id,
+        "owner_id": row.owner_id,
+        "mode": row.mode,
+        "target_listing_id": row.target_listing_id,
+        "status": row.status,
+        "revision": row.revision,
+        "fields": json.loads(row.fields_json or "{}"),
+        "validation": json.loads(row.validation_json or "[]"),
+        "guidance": json.loads(row.guidance_json or "{}"),
+        "images": [listing_image_payload(image) for image in images],
+    }
+
+
+def list_listing_images(db: Session, draft_id: str, owner_id: str):
+    return list(db.scalars(
+        select(models.ListingImage)
+        .where(models.ListingImage.draft_id == draft_id,
+               models.ListingImage.owner_id == owner_id)
+        .order_by(models.ListingImage.sort_order)
+    ).all())
+
+
+def listing_image_payload(row) -> dict:
+    return {
+        "id": row.id, "public_id": row.cloudinary_public_id,
+        "secure_url": row.secure_url, "width": row.width, "height": row.height,
+        "sort_order": row.sort_order,
+    }
+
+
+def add_listing_image(
+    db: Session, *, owner_id: str, draft_id: str, public_id: str,
+    secure_url: str, width: int | None, height: int | None,
+):
+    images = list_listing_images(db, draft_id, owner_id)
+    row = models.ListingImage(
+        id=f"img_{uuid.uuid4().hex}", owner_id=owner_id, draft_id=draft_id,
+        cloudinary_public_id=public_id, secure_url=secure_url,
+        width=width, height=height, sort_order=len(images),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def delete_listing_image(db: Session, *, image_id: str, owner_id: str) -> bool:
+    row = get_listing_image(db, image_id, owner_id)
+    if row is None:
+        return False
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def get_listing_image(db: Session, image_id: str, owner_id: str):
+    return db.scalar(select(models.ListingImage).where(
+        models.ListingImage.id == image_id,
+        models.ListingImage.owner_id == owner_id,
+    ))
+
+
+def get_listing_mutation(db: Session, draft_id: str, revision: int):
+    return db.scalar(select(models.ListingMutation).where(
+        models.ListingMutation.draft_id == draft_id,
+        models.ListingMutation.revision == revision,
+    ))
+
+
+def apply_listing_draft(db: Session, draft, *, image_ids: list[str]) -> tuple[UsedCarDTO, bool]:
+    existing_mutation = get_listing_mutation(db, draft.id, draft.revision)
+    if existing_mutation:
+        listing = db.get(models.UsedCarListing, existing_mutation.listing_id)
+        return UsedCarDTO.model_validate(listing), False
+
+    fields = json.loads(draft.fields_json)
+    if draft.mode == "edit":
+        listing = db.scalar(select(models.UsedCarListing).where(
+            models.UsedCarListing.id == draft.target_listing_id,
+            models.UsedCarListing.owner_id == draft.owner_id,
+        ))
+        if listing is None:
+            raise ValueError("Target listing not found")
+        for key in (
+            "make", "model", "year", "price_kes", "mileage_km", "transmission",
+            "fuel", "location", "condition", "body_type", "description",
+        ):
+            setattr(listing, key, fields[key])
+        listing.version += 1
+        operation = "edit"
+    else:
+        listing = models.UsedCarListing(
+            id=f"car_user_{uuid.uuid4().hex[:10]}",
+            status="active",
+            owner_id=draft.owner_id,
+            source_draft_id=draft.id,
+            make=fields["make"],
+            model=fields["model"],
+            year=int(fields["year"]),
+            price_kes=int(fields["price_kes"]),
+            mileage_km=int(fields["mileage_km"]),
+            transmission=fields["transmission"],
+            fuel=fields["fuel"],
+            location=fields["location"],
+            condition=fields["condition"],
+            body_type=fields["body_type"],
+            image_url="",
+            description=fields["description"],
+            published_at=_utcnow(),
+        )
+        db.add(listing)
+        operation = "create"
+    db.flush()
+
+    images = list(db.scalars(select(models.ListingImage).where(
+        models.ListingImage.id.in_(image_ids),
+        models.ListingImage.owner_id == draft.owner_id,
+        models.ListingImage.draft_id == draft.id,
+    )).all()) if image_ids else []
+    for image in images:
+        image.listing_id = listing.id
+    if images:
+        listing.image_url = sorted(images, key=lambda item: item.sort_order)[0].secure_url
+
+    mutation = models.ListingMutation(
+        id=f"lmut_{uuid.uuid4().hex}",
+        draft_id=draft.id,
+        revision=draft.revision,
+        owner_id=draft.owner_id,
+        listing_id=listing.id,
+        operation=operation,
+    )
+    db.add(mutation)
+    draft.status = "published"
+    db.commit()
+    db.refresh(listing)
+    return UsedCarDTO.model_validate(listing), True

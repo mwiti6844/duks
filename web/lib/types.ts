@@ -8,6 +8,9 @@ export type ComponentType =
   | "price_verdict"
   | "knowledge_answer"
   | "listing_summary"
+  | "listing_progress"
+  | "listing_price_guidance"
+  | "listing_publish_receipt"
   | "follow_up_suggestions";
 
 export type UIAction =

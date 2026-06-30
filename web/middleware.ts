@@ -9,7 +9,11 @@ export function middleware(req: NextRequest) {
   const hasSession = req.cookies.get(SESSION_COOKIE)?.value === "1";
   const { pathname } = req.nextUrl;
 
-  if (pathname.startsWith("/chat") && !hasSession) {
+  if (
+    (pathname.startsWith("/chat") || pathname.startsWith("/my-listings")
+      || pathname.startsWith("/listings/"))
+    && !hasSession
+  ) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
   if (pathname === "/login" && hasSession) {
@@ -20,5 +24,5 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   // Gate the app routes; skip api, static, and the readiness root.
-  matcher: ["/chat/:path*", "/login"],
+  matcher: ["/chat/:path*", "/my-listings/:path*", "/listings/:path*", "/login"],
 };

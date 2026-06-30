@@ -4,6 +4,10 @@ in a background thread so /api/health can answer immediately."""
 from __future__ import annotations
 
 import threading
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,12 +28,18 @@ from .routes.chat import router as chat_router
 from .routes.financing import router as financing_router
 from .routes.health import router as health_router
 from .routes.listings import router as listings_router
+from .routes.listing_drafts import router as listing_drafts_router
 from .routes.session import router as session_router
 
 
 def _background_init(app: FastAPI) -> None:
     try:
         create_all()
+        migration_config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+        migration_config.set_main_option(
+            "script_location", str(Path(__file__).parents[1] / "migrations")
+        )
+        command.upgrade(migration_config, "head")
         with SessionLocal() as db:
             seed_all(db)
         app.state.rag.initialize()
@@ -83,6 +93,7 @@ def create_app(
     app.include_router(bids_router)
     app.include_router(financing_router)
     app.include_router(listings_router)
+    app.include_router(listing_drafts_router)
     app.include_router(session_router)
 
     if eager_init:

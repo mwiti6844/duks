@@ -42,6 +42,9 @@ class UsedCarDTO(BaseModel):
     sold_price_kes: int | None = None
     sold_at: datetime | None = None
     owner_id: str | None = None
+    version: int = 1
+    published_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class AuctionDTO(BaseModel):

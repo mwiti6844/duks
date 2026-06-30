@@ -174,9 +174,11 @@ class FakeProvider:
                     break
 
         if current in ("make", "model", "transmission", "fuel", "condition",
-                       "body_type", "location") and not fields.get(current):
+                       "body_type", "location", "description") and not fields.get(current):
             # A short answer to the current question is unambiguous in the test double.
-            if message and len(message.split()) <= 4 and "sell" not in t:
+            if current == "description" and message:
+                fields[current] = message
+            elif message and len(message.split()) <= 4 and "sell" not in t:
                 fields[current] = message
         if current in ("mileage_km", "price_kes") and current not in fields:
             number = re.fullmatch(r"\s*(\d[\d,]*)\s*", message)
