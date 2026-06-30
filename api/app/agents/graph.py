@@ -169,6 +169,17 @@ def _router_node(state: GraphState, config, writer: StreamWriter) -> dict:
         ))
         return {"intent": "discovery.search", "entities": entities}
 
+    # Preserve the subject of short knowledge follow-ups. The Knowledge agent
+    # rewrites the turn against recent history before retrieval.
+    if context.get("last_intent") == "rag.knowledge" and rag.is_contextual_followup(message):
+        deps.sessions.update_state(sid, active_journey="knowledge", last_intent="rag.knowledge")
+        writer(Trace(
+            kind="routing",
+            label="session_continuation",
+            detail={"intent": "rag.knowledge", "reason": "knowledge_followup"},
+        ))
+        return {"intent": "rag.knowledge", "entities": {}}
+
     routing_context = {
         "active_journey": state.get("conversation_context", {}).get("active_journey"),
         "last_intent": state.get("conversation_context", {}).get("last_intent"),

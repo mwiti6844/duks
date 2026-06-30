@@ -2,6 +2,7 @@
 and eager init so the app is ready immediately."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import os
 import tempfile
 
@@ -31,6 +32,23 @@ class FakeRagStore:
     def initialize(self) -> None:
         self.ready = True
 
+    @staticmethod
+    def query_category(query: str) -> str | None:
+        q = query.lower()
+        if "insur" in q:
+            return "insurance"
+        if "dealer" in q:
+            return "dealer-finance"
+        if "auction" in q:
+            return "auctions"
+        if "financ" in q or "eligible" in q:
+            return "financing"
+        if "trade" in q:
+            return "trade-in"
+        if any(word in q for word in ("policy", "inspection", "payment")):
+            return "policies"
+        return None
+
     def retrieve(self, query: str, *, k: int = 3) -> list[RetrievedChunk]:
         q = query.lower()
         if "mars" in q or "interplanetary" in q:
@@ -56,6 +74,11 @@ class FakeRagStore:
                 text=d["text"],
                 score=0.9,
                 source_url=d.get("source_url"),
+                section=d.get("section", d["category"]),
+                document_version=d.get("document_version", "demo-v1"),
+                retrieved_at=datetime.now(UTC).isoformat(),
+                vector_score=0.85,
+                lexical_score=0.75,
             )
             for d in docs
         ]

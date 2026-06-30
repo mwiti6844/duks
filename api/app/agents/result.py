@@ -136,6 +136,9 @@ class CitationProps(_StrictProps):
     title: str
     score: float = Field(ge=-1, le=1)
     source_url: str | None = None
+    section: str | None = None
+    document_version: str | None = None
+    retrieved_at: str | None = None
 
 
 class KnowledgeAnswerProps(_StrictProps):
@@ -231,6 +234,9 @@ class Citation(BaseModel):
     title: str
     score: float
     source_url: str | None = None
+    section: str | None = None
+    document_version: str | None = None
+    retrieved_at: str | None = None
 
 
 class TraceEntry(BaseModel):

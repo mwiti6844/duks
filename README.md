@@ -21,7 +21,7 @@ Browser ──HTTPS──> web (Next.js BFF, PUBLIC)
                                   │                      profile / listings
                                   ├ deterministic tools (authz + financial rules)
                                   ├ SQLite (curated hero rows + 20 real listings; sold comps)
-                                  ├ ChromaDB in-memory (image-baked ONNX MiniLM model, CPU)
+                                  ├ ChromaDB ephemeral /tmp store (baked ONNX MiniLM, CPU)
                                   └ Redis (conversation context + pending bids/listing drafts)
 ```
 

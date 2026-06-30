@@ -78,6 +78,17 @@ def test_classify_informational_buttons():
         assert intent == "rag.knowledge", q
 
 
+def test_classify_knowledge_paraphrases_by_domain_concept():
+    for question in (
+        "What motor cover is available?",
+        "Can I exchange my existing vehicle for another one?",
+        "Which documents does a dealership need for stock financing?",
+        "Are marketplace cars inspected and returnable?",
+    ):
+        intent, _, _ = router.classify(question, _deps())
+        assert intent == "rag.knowledge", question
+
+
 def test_classify_financing():
     intent, _, _ = router.classify("What would financing look like?", _deps())
     assert intent == "transaction.financing"

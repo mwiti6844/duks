@@ -24,7 +24,9 @@ _VALID_INTENTS = {
 # "How do I sell a car?" / "How does vehicle insurance work?" route to RAG, while
 # "I want to sell my car" routes to the Listings agent (handled after this branch).
 _KB_DOMAIN = ("auction", "finance", "financ", "trade-in", "trade in", "insurance",
-              "insure", "dealer", "dealership", "sell", "work", "eligib")
+              "insure", "cover", "premium", "dealer", "dealership", "sell",
+              "swap", "exchange", "inspection", "return", "payment", "logbook",
+              "escrow", "work", "eligib")
 
 _KNOWN_MODELS = ["forester", "fielder", "premio", "note", "lexus lx", " lx", "axio",
                  "vitara", "demio", "x-trail", "harrier"]
@@ -121,7 +123,15 @@ def _authoritative_intent(message: str) -> str | None:
     """
     t = message.lower()
     has_how = re.search(r"\bhow\b", t) is not None
-    is_info = has_how or any(p in t for p in ("what is", "explain", "tell me about"))
+    alias_question = (
+        re.match(r"\s*(what|which|can|does|do|are|is)\b", t) is not None
+        and any(term in t for term in (
+            "cover", "premium", "dealer", "dealership", "trade", "swap",
+            "exchange", "inspection", "return", "payment", "logbook", "escrow",
+        ))
+    )
+    is_info = has_how or any(p in t for p in ("what is", "explain", "tell me about")) \
+        or alias_question
     if is_info and any(w in t for w in _KB_DOMAIN):
         return "rag.knowledge"
     if (re.search(r"\bsell", t) and not is_info) or "list my car" in t \
