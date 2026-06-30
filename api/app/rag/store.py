@@ -27,6 +27,10 @@ class RagStore:
     def __init__(self) -> None:
         self._collection = None
         self._ready = False
+        # Last query-time failure (exception class + message), surfaced via the
+        # /api/_diag/rag endpoint so production retrieval failures are observable
+        # instead of vanishing into a swallowed [] result.
+        self._last_error: str | None = None
 
     def initialize(self) -> None:
         """Build the in-memory collection and embed the knowledge docs.
@@ -78,16 +82,21 @@ class RagStore:
     def ready(self) -> bool:
         return self._ready
 
+    @property
+    def last_error(self) -> str | None:
+        return self._last_error
+
     def retrieve(self, query: str, *, k: int = 3) -> list[RetrievedChunk]:
         if not self._ready or self._collection is None:
             return []
         try:
             res = self._collection.query(query_texts=[query], n_results=k)
-        except Exception:
+        except Exception as exc:
             # A transient embedding/backend failure (e.g. the macOS CoreML ONNX
             # provider) must degrade to a graceful "no sources" decline, never crash
             # the chat stream. Production (Linux/CPU) does not hit this path.
-            logger.exception("RAG retrieval failed")
+            self._last_error = f"{type(exc).__name__}: {exc}"
+            logger.exception("RAG retrieval failed for query=%r", query)
             return []
         ids = res.get("ids", [[]])[0]
         docs = res.get("documents", [[]])[0]

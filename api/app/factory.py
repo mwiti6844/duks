@@ -25,6 +25,7 @@ from .rag.store import RagStore
 from .routes.bids import router as bids_router
 from .routes.catalog import router as catalog_router
 from .routes.chat import router as chat_router
+from .routes.diag import router as diag_router
 from .routes.financing import router as financing_router
 from .routes.health import router as health_router
 from .routes.listings import router as listings_router
@@ -94,6 +95,7 @@ def create_app(
     app.state.graph = build_graph()
 
     app.include_router(health_router)
+    app.include_router(diag_router)
     app.include_router(auth_router)
     app.include_router(catalog_router)
     app.include_router(chat_router)
