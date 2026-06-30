@@ -54,6 +54,8 @@ def test_atomic_in_memory_history_updates_do_not_lose_turns():
 
 def test_production_requires_redis(monkeypatch):
     monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET", "j" * 32)
+    monkeypatch.setenv("BID_SIGNING_SECRET", "b" * 32)
     monkeypatch.delenv("REDIS_URL", raising=False)
     monkeypatch.delenv("ALLOW_IN_MEMORY_SESSIONS", raising=False)
     settings = load_settings(allow_fake=True)

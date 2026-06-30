@@ -67,6 +67,15 @@ def search_cars(
     model: str | None,
     max_price_kes: int | None,
     min_price_kes: int | None,
+    max_mileage_km: int | None = None,
+    min_mileage_km: int | None = None,
+    min_year: int | None = None,
+    max_year: int | None = None,
+    body_types: list[str] | None = None,
+    transmission: str | None = None,
+    fuel: str | None = None,
+    location: str | None = None,
+    sort_by: str | None = None,
 ) -> list[UsedCarDTO]:
     return repo.search_used_cars(
         db,
@@ -74,6 +83,15 @@ def search_cars(
         model=model,
         max_price_kes=max_price_kes,
         min_price_kes=min_price_kes,
+        max_mileage_km=max_mileage_km,
+        min_mileage_km=min_mileage_km,
+        min_year=min_year,
+        max_year=max_year,
+        body_types=body_types,
+        transmission=transmission,
+        fuel=fuel,
+        location=location,
+        sort_by=sort_by,
     )
 
 

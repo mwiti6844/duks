@@ -7,7 +7,7 @@ Return ONLY a JSON object, no prose:
 {"intent": "<intent>", "entities": {...}}
 
 Valid intents:
-- discovery.search    : find/browse used cars by make, model, budget
+- discovery.search    : find/browse used cars by any stated vehicle criteria
 - discovery.compare   : compare two already-shown cars (e.g. "compare the first two")
 - discovery.verdict   : is a price fair / what's it worth / AI price verdict
 - discovery.auctions  : browse/show auction listings
@@ -20,7 +20,20 @@ Valid intents:
 Entities to extract when present:
 - make, model (strings)
 - max_price_kes, min_price_kes (integers, KES)
+- max_mileage_km, min_mileage_km (integers)
+- min_year, max_year (integers)
+- body_types (array of strings such as SUV, Sedan, Hatchback, Station Wagon)
+- transmission, fuel, location (strings)
+- use_case (short string such as family, city driving, business)
+- sort_by ("price_asc", "mileage_asc", or "year_desc") when the user states a priority
 - amount_kes (integer, for bids)
+- principal_kes (vehicle price for financing)
+- deposit_kes or deposit_pct (financing deposit)
+- term_months (financing repayment term)
 - ordinal ("first", "second", "first two") for compare
+
+Capture every constraint in the latest message. For ranges, populate both minimum and
+maximum fields. "Low mileage" means sort_by="mileage_asc"; a numeric mileage ceiling
+must also populate max_mileage_km. Never treat a number followed by km as a price.
 
 Respond with the JSON object only.

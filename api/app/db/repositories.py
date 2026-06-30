@@ -75,7 +75,16 @@ def search_used_cars(
     model: str | None = None,
     max_price_kes: int | None = None,
     min_price_kes: int | None = None,
-    limit: int = 12,
+    max_mileage_km: int | None = None,
+    min_mileage_km: int | None = None,
+    min_year: int | None = None,
+    max_year: int | None = None,
+    body_types: list[str] | None = None,
+    transmission: str | None = None,
+    fuel: str | None = None,
+    location: str | None = None,
+    sort_by: str | None = None,
+    limit: int = 8,
 ) -> list[UsedCarDTO]:
     stmt = select(models.UsedCarListing).where(models.UsedCarListing.status == "active")
     if make:
@@ -86,7 +95,28 @@ def search_used_cars(
         stmt = stmt.where(models.UsedCarListing.price_kes <= max_price_kes)
     if min_price_kes is not None:
         stmt = stmt.where(models.UsedCarListing.price_kes >= min_price_kes)
-    stmt = stmt.order_by(models.UsedCarListing.price_kes.asc()).limit(limit)
+    if max_mileage_km is not None:
+        stmt = stmt.where(models.UsedCarListing.mileage_km <= max_mileage_km)
+    if min_mileage_km is not None:
+        stmt = stmt.where(models.UsedCarListing.mileage_km >= min_mileage_km)
+    if min_year is not None:
+        stmt = stmt.where(models.UsedCarListing.year >= min_year)
+    if max_year is not None:
+        stmt = stmt.where(models.UsedCarListing.year <= max_year)
+    if body_types:
+        stmt = stmt.where(models.UsedCarListing.body_type.in_(body_types))
+    if transmission:
+        stmt = stmt.where(models.UsedCarListing.transmission.ilike(transmission))
+    if fuel:
+        stmt = stmt.where(models.UsedCarListing.fuel.ilike(fuel))
+    if location:
+        stmt = stmt.where(models.UsedCarListing.location.ilike(f"%{location}%"))
+    order = {
+        "mileage_asc": models.UsedCarListing.mileage_km.asc(),
+        "year_desc": models.UsedCarListing.year.desc(),
+        "price_asc": models.UsedCarListing.price_kes.asc(),
+    }.get(sort_by, models.UsedCarListing.price_kes.asc())
+    stmt = stmt.order_by(order, models.UsedCarListing.price_kes.asc()).limit(limit)
     return [UsedCarDTO.model_validate(r) for r in db.scalars(stmt).all()]
 
 

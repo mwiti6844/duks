@@ -19,6 +19,132 @@ from .state import GraphState
 
 Emit = Callable[[object], None]
 
+_SEARCH_FIELDS = {
+    "make",
+    "model",
+    "max_price_kes",
+    "min_price_kes",
+    "max_mileage_km",
+    "min_mileage_km",
+    "min_year",
+    "max_year",
+    "body_types",
+    "transmission",
+    "fuel",
+    "location",
+    "use_case",
+    "sort_by",
+}
+
+
+def _search_constraints(entities: dict) -> dict:
+    """Keep only deterministic catalogue filters/intake context."""
+    return {
+        key: value
+        for key, value in entities.items()
+        if key in _SEARCH_FIELDS and value not in (None, "", [])
+    }
+
+
+def _starts_new_search(message: str) -> bool:
+    text = message.lower()
+    return any(phrase in text for phrase in (
+        "new search",
+        "start over",
+        "start again",
+        "clear filters",
+        "show all",
+        "browse all",
+    ))
+
+
+def _is_broad_buy_request(message: str, entities: dict) -> bool:
+    """True when the user expressed buying intent but supplied no usable criteria."""
+    if _search_constraints(entities):
+        return False
+    text = message.lower()
+    return any(phrase in text for phrase in (
+        "buy a car",
+        "buying a car",
+        "want a car",
+        "need a car",
+        "looking for a car",
+        "help me find a car",
+        "show me cars",
+        "show cars",
+    ))
+
+
+def _ready_to_search(constraints: dict) -> bool:
+    """Avoid a catalogue dump while still honoring genuinely specific requests."""
+    if constraints.get("model"):
+        return True
+    has_budget = bool(
+        constraints.get("max_price_kes") or constraints.get("min_price_kes")
+    )
+    # A concrete ceiling is enough to produce a useful, deliberately short shortlist.
+    # A make/body preference without either a model or budget is still too broad.
+    return has_budget
+
+
+def _ask_for_next_preference(
+    state: GraphState, deps: Deps, emit: Emit, constraints: dict
+) -> None:
+    """Have the LLM ask one orchestrator-selected, high-value question."""
+    sid = state["session_id"]
+    name = state.get("username", "").split()[0].title()
+
+    has_vehicle_preference = bool(
+        constraints.get("make")
+        or constraints.get("model")
+        or constraints.get("body_types")
+        or constraints.get("use_case")
+    )
+    has_budget = bool(
+        constraints.get("max_price_kes") or constraints.get("min_price_kes")
+    )
+
+    if not has_vehicle_preference:
+        question_goal = (
+            "Ask what they will mainly use the car for, with brief examples such as "
+            "family trips, city commuting, or business."
+        )
+        step = "use_case"
+    elif not has_budget and not constraints.get("model"):
+        question_goal = "Ask for their maximum budget in KES."
+        step = "budget"
+    else:
+        question_goal = (
+            "Ask whether they prefer a make or body style, or want you to choose "
+            "the strongest options within the stated budget."
+        )
+        step = "vehicle_preference"
+
+    deps.sessions.update_state(
+        sid,
+        active_journey="buying",
+        awaiting_buy_criteria=True,
+        buy_intake_step=step,
+        search_constraints=constraints,
+    )
+    emit(Trace(
+        kind="routing",
+        label="discovery_intake",
+        detail={"step": step, "collected": sorted(constraints)},
+    ))
+    intake_context = (
+        f"User first name: {name or 'not supplied'}.\n"
+        f"Collected preferences: {constraints or 'none yet'}.\n"
+        f"question_goal: {question_goal}"
+    )
+    _stream_prose(
+        state,
+        deps,
+        emit,
+        prompt_name="discovery_intake.v1",
+        user_context=intake_context,
+    )
+
 
 def _is_detail_request(message: str) -> bool:
     text = message.lower()
@@ -101,26 +227,10 @@ def _emit_car_suggestions(car, sid: str, deps: Deps, emit: Emit) -> None:
 def handle_search(state: GraphState, deps: Deps, emit: Emit) -> None:
     ent = state.get("entities", {})
     sid = state["session_id"]
+    session_context = deps.sessions.get_state(sid)
 
     if ent.get("journey_start"):
-        deps.sessions.update_state(
-            sid,
-            active_journey="buying",
-            awaiting_buy_criteria=True,
-            search_constraints={},
-        )
-        memory = state.get("user_memory", {})
-        preference = ""
-        if memory.get("budget_kes") or memory.get("preferred_makes"):
-            preference = (
-                " I can also use your saved preferences if you want: "
-                f"budget {memory.get('budget_kes') or 'not set'}, "
-                f"makes {memory.get('preferred_makes') or 'not set'}."
-            )
-        emit(TextDelta(text=(
-            "What kind of car are you looking for? Tell me a make or model, body type, "
-            f"budget, or how you plan to use it.{preference}"
-        )))
+        _ask_for_next_preference(state, deps, emit, {})
         return
 
     if ent.get("car_id"):
@@ -188,16 +298,47 @@ def handle_search(state: GraphState, deps: Deps, emit: Emit) -> None:
             _emit_car_suggestions(car, sid, deps, emit)
             return
 
-    emit(ToolStarted(name="search_cars", params=ent))
-    deps.sessions.update_state(sid, awaiting_buy_criteria=False)
+    previous_constraints = session_context.get("search_constraints", {})
+    inherit_previous = bool(previous_constraints) and not _starts_new_search(
+        state["message"]
+    )
+    constraints = (
+        dict(previous_constraints) if inherit_previous else {}
+    ) | _search_constraints(ent)
+    for key in ent.get("remove_constraints", []):
+        constraints.pop(key, None)
+
+    if _is_broad_buy_request(state["message"], ent):
+        _ask_for_next_preference(state, deps, emit, {})
+        return
+
+    if not _ready_to_search(constraints):
+        _ask_for_next_preference(state, deps, emit, constraints)
+        return
+
+    emit(ToolStarted(name="search_cars", params=constraints))
+    deps.sessions.update_state(
+        sid,
+        awaiting_buy_criteria=False,
+        buy_intake_step=None,
+    )
     t0 = time.time()
     with deps.db_factory() as db:
         cars = tools.search_cars(
             db,
-            make=ent.get("make"),
-            model=ent.get("model"),
-            max_price_kes=ent.get("max_price_kes"),
-            min_price_kes=ent.get("min_price_kes"),
+            make=constraints.get("make"),
+            model=constraints.get("model"),
+            max_price_kes=constraints.get("max_price_kes"),
+            min_price_kes=constraints.get("min_price_kes"),
+            max_mileage_km=constraints.get("max_mileage_km"),
+            min_mileage_km=constraints.get("min_mileage_km"),
+            min_year=constraints.get("min_year"),
+            max_year=constraints.get("max_year"),
+            body_types=constraints.get("body_types"),
+            transmission=constraints.get("transmission"),
+            fuel=constraints.get("fuel"),
+            location=constraints.get("location"),
+            sort_by=constraints.get("sort_by"),
         )
     emit(ToolCompleted(name="search_cars", ms=int((time.time() - t0) * 1000),
                        detail={"count": len(cars)}))
@@ -209,7 +350,7 @@ def handle_search(state: GraphState, deps: Deps, emit: Emit) -> None:
         focused_listing_id=ids[0] if ids else None,
         focused_entity_type="used_car" if ids else None,
         focused_entity_id=ids[0] if ids else None,
-        search_constraints=ent,
+        search_constraints=constraints,
     )
 
     if not cars:
@@ -220,8 +361,19 @@ def handle_search(state: GraphState, deps: Deps, emit: Emit) -> None:
     emit(ComponentReady(type="car_card_list",
                         props={"cars": [tools.car_to_props(c) for c in cars]}))
     cheapest = min(cars, key=lambda c: c.price_kes)
-    ctx = (f"Found {len(cars)} matching cars. Cheapest: {cheapest.year} "
-           f"{cheapest.make} {cheapest.model} at KES {cheapest.price_kes:,}.")
+    lowest_mileage = min(cars, key=lambda c: c.mileage_km)
+    newest = max(cars, key=lambda c: c.year)
+    ctx = (
+        f"User's applied search constraints: {constraints}.\n"
+        f"Found {len(cars)} matching cars after database filtering.\n"
+        f"Lowest price: {cheapest.year} {cheapest.make} {cheapest.model}, "
+        f"KES {cheapest.price_kes:,}, {cheapest.mileage_km:,} km.\n"
+        f"Lowest mileage: {lowest_mileage.year} {lowest_mileage.make} "
+        f"{lowest_mileage.model}, KES {lowest_mileage.price_kes:,}, "
+        f"{lowest_mileage.mileage_km:,} km.\n"
+        f"Newest: {newest.year} {newest.make} {newest.model}, "
+        f"KES {newest.price_kes:,}, {newest.mileage_km:,} km."
+    )
     _stream_prose(state, deps, emit, prompt_name="discovery.v1", user_context=ctx)
     followups = suggestions.for_car_list(cars)
     if followups:
@@ -277,7 +429,24 @@ def _resolve_compare_ids(state: GraphState, deps: Deps) -> list[str]:
         if 0 <= index < len(displayed):
             ordinal_ids.append(displayed[index])
 
-    resolved = list(dict.fromkeys([*mentioned, *ordinal_ids]))
+    superlative_ids: list[str] = []
+    if "two most expensive" in text:
+        superlative_ids.extend(
+            car.id for car in sorted(cars, key=lambda item: item.price_kes, reverse=True)[:2]
+        )
+    else:
+        if "cheapest" in text or "most affordable" in text:
+            superlative_ids.append(min(cars, key=lambda item: item.price_kes).id)
+        if "most expensive" in text:
+            superlative_ids.append(max(cars, key=lambda item: item.price_kes).id)
+    if "lowest mileage" in text:
+        superlative_ids.append(min(cars, key=lambda item: item.mileage_km).id)
+    if "newest" in text or "latest" in text:
+        superlative_ids.append(max(cars, key=lambda item: item.year).id)
+    if "oldest" in text:
+        superlative_ids.append(min(cars, key=lambda item: item.year).id)
+
+    resolved = list(dict.fromkeys([*mentioned, *ordinal_ids, *superlative_ids]))
     focused = context.get("focused_listing_id")
 
     if len(resolved) >= 2:
@@ -370,9 +539,24 @@ def handle_compare(state: GraphState, deps: Deps, emit: Emit) -> None:
             f"the {lower_mileage.year} {lower_mileage.make} {lower_mileage.model} "
             f"has {mileage_gap:,} fewer kilometres"
         )
-    emit(TextDelta(
-        text="Here's a side-by-side: " + "; ".join(tradeoffs) + "."
-    ))
+    comparison_context = (
+        "Compared database rows:\n"
+        + "\n".join(
+            f"- ID {car.id}: {car.year} {car.make} {car.model}; "
+            f"KES {car.price_kes:,}; {car.mileage_km:,} km; "
+            f"{car.transmission}; {car.body_type}; {car.condition}; {car.location}"
+            for car in cars
+        )
+        + "\nDeterministic trade-offs:\n- "
+        + "\n- ".join(tradeoffs)
+    )
+    _stream_prose(
+        state,
+        deps,
+        emit,
+        prompt_name="discovery_compare.v1",
+        user_context=comparison_context,
+    )
     context = deps.sessions.get_state(sid)
     displayed_ids = context.get("displayed_used_car_ids", [])
     with deps.db_factory() as db:
@@ -413,11 +597,18 @@ def handle_verdict(state: GraphState, deps: Deps, emit: Emit) -> None:
         "car": tools.car_to_props(car),
         **verdict,
     }))
-    label = {"fair": "fairly priced", "below_market": "priced below the market",
-             "above_market": "priced above the market",
-             "insufficient_data": "hard to assess"}.get(verdict["verdict"], "assessed")
-    emit(TextDelta(text=f"Based on recent comparable sales, this {car.make} "
-                        f"{car.model} looks {label}."))
+    verdict_context = (
+        f"Selected listing: ID {car.id}; {car.year} {car.make} {car.model}; "
+        f"asking price KES {car.price_kes:,}; mileage {car.mileage_km:,} km.\n"
+        f"Deterministic verdict: {verdict}"
+    )
+    _stream_prose(
+        state,
+        deps,
+        emit,
+        prompt_name="discovery_verdict.v1",
+        user_context=verdict_context,
+    )
     emit(suggestions.after_verdict(car.id))
 
 
@@ -451,8 +642,22 @@ def handle_auctions(state: GraphState, deps: Deps, emit: Emit) -> None:
     deps.sessions.update_state(sid, **changes)
     emit(ComponentReady(type="auction_countdown",
                         props={"auctions": [tools.auction_to_props(a) for a in auctions]}))
-    emit(TextDelta(text=f"Here are {len(auctions)} live auctions with countdown timers. "
-                        f"Tell me an amount and a car to place a bid."))
+    auction_context = (
+        f"Live auction count: {len(auctions)}.\n"
+        + "\n".join(
+            f"- ID {auction.id}: {auction.year} {auction.make} {auction.model}; "
+            f"current bid KES {auction.current_bid_kes:,}; minimum increment "
+            f"KES {auction.min_increment_kes:,}; ends at {auction.ends_at.isoformat()}"
+            for auction in auctions
+        )
+    )
+    _stream_prose(
+        state,
+        deps,
+        emit,
+        prompt_name="discovery_auctions.v1",
+        user_context=auction_context,
+    )
     followups = suggestions.for_auctions(auctions)
     if followups:
         emit(followups)

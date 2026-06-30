@@ -48,7 +48,11 @@ def handle_financing(state: GraphState, deps: Deps, emit: Emit) -> None:
         if car is None:
             displayed = deps.sessions.get_state(sid).get("displayed_used_car_ids", [])
             car = repo.get_used_car(db, displayed[0]) if displayed else None
-    principal = ent.get("max_price_kes") or (car.price_kes if car else None)
+    principal = (
+        ent.get("principal_kes")
+        or ent.get("max_price_kes")  # backward compatibility with existing actions/tests
+        or (car.price_kes if car else None)
+    )
     if principal is None:
         deps.sessions.update_state(sid, active_journey="financing", awaiting_finance_price=True)
         emit(TextDelta(text=(
@@ -60,7 +64,17 @@ def handle_financing(state: GraphState, deps: Deps, emit: Emit) -> None:
 
     emit(ToolStarted(name="compute_financing", params={"principal_kes": principal}))
     t0 = time.time()
-    plan = tools.compute_financing(principal_kes=principal, deposit_kes=ent.get("deposit_kes"))
+    deposit_kes = ent.get("deposit_kes")
+    if deposit_kes is None and ent.get("deposit_pct") is not None:
+        deposit_kes = int(principal * float(ent["deposit_pct"]) / 100)
+    term_months = int(ent.get("term_months") or tools.DEFAULT_TERM_MONTHS)
+    # Keep natural-language values inside the same bounds as the interactive endpoint.
+    term_months = max(6, min(term_months, 72))
+    plan = tools.compute_financing(
+        principal_kes=principal,
+        deposit_kes=deposit_kes,
+        term_months=term_months,
+    )
     emit(ToolCompleted(name="compute_financing", ms=int((time.time() - t0) * 1000),
                        detail={"monthly_payment_kes": plan["monthly_payment_kes"]}))
 

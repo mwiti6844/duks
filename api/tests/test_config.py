@@ -26,3 +26,12 @@ def test_anthropic_key_disables_fake(monkeypatch):
     settings = load_settings(allow_fake=False)
     assert settings.use_fake_llm is False
     assert settings.anthropic_model == "claude-sonnet-4-6"
+
+
+def test_railway_rejects_default_signing_secrets(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "env-test")
+    monkeypatch.setenv("JWT_SECRET", "dev-jwt-secret")
+    monkeypatch.setenv("BID_SIGNING_SECRET", "dev-bid-secret")
+    with pytest.raises(ConfigError, match="JWT_SECRET"):
+        load_settings()

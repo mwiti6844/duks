@@ -48,7 +48,7 @@ class ClaudeProvider:
     def __init__(self, api_key: str, model: str) -> None:
         import anthropic
 
-        self._client = anthropic.Anthropic(api_key=api_key)
+        self._client = anthropic.Anthropic(api_key=api_key, timeout=25.0, max_retries=2)
         self._model = model
 
     @property
@@ -80,7 +80,7 @@ class GroqProvider:
     def __init__(self, api_key: str, model: str) -> None:
         from groq import Groq
 
-        self._client = Groq(api_key=api_key)
+        self._client = Groq(api_key=api_key, timeout=25.0, max_retries=2)
         self._model = model
 
     @property

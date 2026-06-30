@@ -114,7 +114,7 @@ def test_buy_journey_starts_intake_without_hidden_search(client, auth):
         },
     )
     assert response.status_code == 200
-    assert "What kind of car" in response.text
+    assert "event: token" in response.text
     assert '"name": "search_cars"' not in response.text
     assert "Subaru Forester" not in response.text
 
@@ -141,6 +141,25 @@ def test_finance_journey_requires_real_principal_then_continues(client, auth):
         if component["type"] == "financing_calculator"
     )
     assert calculator["props"]["price_kes"] == 2_500_000
+
+
+def test_financing_understands_price_deposit_and_term_without_cross_talk(client, auth):
+    sid = "sess-finance-natural"
+    sse.chat(client, auth, "I want to finance a car", sid)
+    followup = sse.chat(
+        client,
+        auth,
+        "The car costs KES 2.5M and I can put down 30% over 36 months",
+        sid,
+    )
+    calculator = next(
+        component for component in sse.components(followup)
+        if component["type"] == "financing_calculator"
+    )
+    assert calculator["props"]["price_kes"] == 2_500_000
+    assert calculator["props"]["deposit_kes"] == 750_000
+    assert calculator["props"]["deposit_pct"] == 30
+    assert calculator["props"]["term_months"] == 36
 
 
 def test_information_journey_routes_to_grounded_knowledge(client, auth):

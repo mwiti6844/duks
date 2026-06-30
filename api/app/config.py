@@ -50,19 +50,32 @@ def load_settings(*, allow_fake: bool = False) -> Settings:
                 "optionally GROQ_API_KEY) before starting the API."
             )
 
+    is_production = (
+        os.getenv("APP_ENV", "").lower() == "production"
+        or bool(os.getenv("RAILWAY_ENVIRONMENT_ID"))
+    )
+    jwt_secret = os.getenv("JWT_SECRET", "dev-jwt-secret")
+    bid_signing_secret = os.getenv("BID_SIGNING_SECRET", "dev-bid-secret")
+    if is_production:
+        if jwt_secret == "dev-jwt-secret" or len(jwt_secret) < 32:
+            raise ConfigError("JWT_SECRET must be a non-default value of at least 32 characters")
+        if bid_signing_secret == "dev-bid-secret" or len(bid_signing_secret) < 32:
+            raise ConfigError(
+                "BID_SIGNING_SECRET must be a non-default value of at least 32 characters"
+            )
+
     return Settings(
         anthropic_api_key=anthropic_api_key,
         groq_api_key=groq_api_key,
         anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
         groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-        jwt_secret=os.getenv("JWT_SECRET", "dev-jwt-secret"),
-        bid_signing_secret=os.getenv("BID_SIGNING_SECRET", "dev-bid-secret"),
+        jwt_secret=jwt_secret,
+        bid_signing_secret=bid_signing_secret,
         redis_url=os.getenv("REDIS_URL") or None,
         allow_in_memory_sessions=(
             os.getenv("ALLOW_IN_MEMORY_SESSIONS", "").lower() in ("1", "true", "yes")
             or not (
-                os.getenv("APP_ENV", "").lower() == "production"
-                or bool(os.getenv("RAILWAY_ENVIRONMENT"))
+                is_production
             )
         ),
         cloudinary_cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME") or None,

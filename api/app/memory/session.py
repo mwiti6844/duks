@@ -62,6 +62,9 @@ def _default_context() -> dict:
         "comparison_car_ids": [],
         "comparison_anchor_id": None,
         "search_constraints": {},
+        "awaiting_buy_criteria": False,
+        "buy_intake_step": None,
+        "listing_draft_paused": False,
         "conversation_summary": "",
     }
 

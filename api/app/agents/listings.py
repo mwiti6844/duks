@@ -77,7 +77,27 @@ def _validated_fields(raw: object) -> dict:
             out[key] = number
         elif isinstance(value, str):
             cleaned = re.sub(r"\s+", " ", value).strip()
-            if 1 <= len(cleaned) <= 80:
+            max_length = 2_000 if key == "description" else 80
+            if 1 <= len(cleaned) <= max_length:
+                if key == "transmission":
+                    cleaned = {
+                        "automatic": "Automatic", "manual": "Manual"
+                    }.get(cleaned.lower(), cleaned)
+                elif key == "fuel":
+                    cleaned = {
+                        "petrol": "Petrol", "diesel": "Diesel",
+                        "hybrid": "Hybrid", "electric": "Electric",
+                    }.get(cleaned.lower(), cleaned)
+                elif key == "condition":
+                    cleaned = {
+                        "excellent": "Excellent", "good": "Good", "fair": "Fair",
+                        "needs repair": "Needs repair",
+                    }.get(cleaned.lower(), cleaned)
+                elif key == "body_type":
+                    cleaned = {
+                        "suv": "SUV", "sedan": "Sedan", "hatchback": "Hatchback",
+                        "station wagon": "Station Wagon", "pickup": "Pickup",
+                    }.get(cleaned.lower(), cleaned)
                 out[key] = cleaned
     return out
 
@@ -115,6 +135,16 @@ def handle_sell(state: GraphState, deps: Deps, emit: Emit) -> None:
     fields = dict(draft.get("fields", {}))
 
     current = _next_missing(fields)
+    if state.get("entities", {}).get("resume_only") and current:
+        progress, missing_fields = completion(fields)
+        emit(ComponentReady(type="listing_progress", props={
+            "draft_id": draft["draft_id"],
+            "percent": progress,
+            "missing_fields": missing_fields,
+            "status": "collecting",
+        }))
+        emit(TextDelta(text=f"Welcome back. {_ASK[current]}"))
+        return
     emit(ToolStarted(name="extract_listing_fields", params={"asking": current}))
     t0 = time.time()
     try:

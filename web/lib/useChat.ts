@@ -66,6 +66,11 @@ export function useChat() {
           }
         }, action);
       } catch (e) {
+        if (e instanceof Error && e.message.includes("(401)")) {
+          localStorage.removeItem("carduka_sid");
+          window.location.href = "/login";
+          return;
+        }
         updateLast((m) => ({
           ...m,
           text: m.text || `Something went wrong: ${e instanceof Error ? e.message : e}`,
@@ -101,6 +106,11 @@ export function useChat() {
         const res = await fetch(`/api/session/bootstrap?session_id=${encodeURIComponent(sid)}`, {
           cache: "no-store",
         });
+        if (res.status === 401) {
+          localStorage.removeItem("carduka_sid");
+          window.location.href = "/login";
+          return;
+        }
         if (res.ok) {
           const data = await res.json();
           setUser(data.user);

@@ -67,7 +67,8 @@ carduka/
   api/   FastAPI + LangGraph (Python 3.12, PRIVATE service)
   web/   Next.js App Router BFF (Node 24, PUBLIC service)
   docker-compose.yml   local parity: web + api + redis
-  railway.json         Railway deploy hints (healthcheck /api/health)
+  api/railway.json     API Railway health/restart configuration
+  web/railway.json     Web Railway health/restart configuration
 ```
 
 ## Run locally
@@ -177,14 +178,28 @@ cd web && npm run build                           # type-check + production buil
 
 ## Deploy to Railway
 
-1. Create a project and add the **Redis** plugin.
-2. Service **api** — root `api/`, Dockerfile build. It's private (no public domain).
-   Env: `ANTHROPIC_API_KEY`, `GROQ_API_KEY` (optional), `JWT_SECRET`,
-   `BID_SIGNING_SECRET`, `REDIS_URL` (from the plugin). Health check: `/api/health`.
-3. Service **web** — root `web/`, Dockerfile build. Public. Env:
-   `API_INTERNAL_URL` = the api service's internal URL.
-4. The **web** service URL is your shareable demo link. At least one LLM provider key
-   must be set on `api`, or it fails fast at startup.
+1. Create one Railway project and add the **Redis** service.
+2. Service **api**:
+   - Root directory: `/api`
+   - Railway config path: `/api/railway.json`
+   - No public domain
+   - Set `PORT=8000` and `APP_ENV=production`
+   - Set at least one provider key (`GROQ_API_KEY` is sufficient)
+   - Set unique `JWT_SECRET` and `BID_SIGNING_SECRET` values of at least 32 characters
+   - Set `REDIS_URL=${{Redis.REDIS_URL}}` using the actual Redis service name
+   - Add the rotated Cloudinary variables when photo uploads are required
+3. Service **web**:
+   - Root directory: `/web`
+   - Railway config path: `/web/railway.json`
+   - Set `PORT=3000`
+   - Set `API_INTERNAL_URL=http://${{api.RAILWAY_PRIVATE_DOMAIN}}:8000`
+   - Generate the project's only public domain on this service
+4. Deploy `api` first and confirm `/api/health` becomes ready, then deploy `web`.
+   The public web URL is the shareable demo link.
+
+Do not set `SQLITE_PATH` on Railway for this ephemeral demo. If it is set locally,
+startup configures Alembic to migrate that exact same file. Railway production startup
+rejects missing Redis and default/short signing secrets.
 
 ## Environment variables
 
@@ -197,6 +212,11 @@ cd web && npm run build                           # type-check + production buil
 | api | `REDIS_URL` | Required on Railway/production |
 | api | `ALLOW_IN_MEMORY_SESSIONS` | Local/test escape hatch only |
 | api | `APP_ENV` | Set to `production` outside local development |
+| api | `PORT` | Set to `8000` so the private URL has a stable explicit port |
 | api | `USE_FAKE_LLM=1` | run keyless with the deterministic fake |
+| api | `CLOUDINARY_CLOUD_NAME` | optional listing photos |
+| api | `CLOUDINARY_API_KEY` | optional listing photos |
+| api | `CLOUDINARY_API_SECRET` | optional; server-side only and should be sealed |
 | web | `API_INTERNAL_URL` | server-only, runtime; **no** `NEXT_PUBLIC_` prefix |
+| web | `PORT` | Set to `3000` |
 ```

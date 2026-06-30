@@ -16,7 +16,7 @@ from .agents.deps import Deps
 from .agents.graph import build_graph
 from .auth.routes import router as auth_router
 from .config import Settings, load_settings
-from .db.engine import SessionLocal, create_all
+from .db.engine import SessionLocal, create_all, engine
 from .db.seed import seed_all
 from .health import Readiness
 from .llm.provider import LLMProvider, build_provider
@@ -39,10 +39,17 @@ def _background_init(app: FastAPI) -> None:
         migration_config.set_main_option(
             "script_location", str(Path(__file__).parents[1] / "migrations")
         )
+        # Alembic must migrate the same SQLite file used by SQLAlchemy, including
+        # deployments that override SQLITE_PATH.
+        migration_config.set_main_option("sqlalchemy.url", str(engine.url))
         command.upgrade(migration_config, "head")
         with SessionLocal() as db:
             seed_all(db)
         app.state.rag.initialize()
+        # Readiness means retrieval works, not merely that Chroma accepted inserts.
+        # This catches broken embedding/query runtimes before Railway promotes a deploy.
+        if not app.state.rag.retrieve("How does vehicle insurance work?", k=1):
+            raise RuntimeError("RAG initialized but failed its retrieval readiness probe")
         app.state.readiness.mark_ready()
     except Exception as exc:  # pragma: no cover - surfaced via /api/health
         app.state.readiness.mark_error(str(exc))

@@ -93,3 +93,21 @@ def test_comparison_followups_are_named_and_do_not_repeat_current_pair(client, a
         set(item["action"]["entity_ids"]) != current_pair
         for item in comparison_actions
     )
+
+
+def test_compare_cheapest_and_most_expensive_resolves_visible_extremes(client, auth):
+    sid = "sess-compare-extremes"
+    search = sse.chat(client, auth, "Show cars below 2M", sid)
+    shown = next(
+        component for component in sse.components(search)
+        if component["type"] == "car_card_list"
+    )["props"]["cars"]
+    events = sse.chat(client, auth, "Compare the cheapest and most expensive", sid)
+    compared = next(
+        component for component in sse.components(events)
+        if component["type"] == "comparison_table"
+    )["props"]["cars"]
+    assert {car["id"] for car in compared} == {
+        min(shown, key=lambda car: car["price_kes"])["id"],
+        max(shown, key=lambda car: car["price_kes"])["id"],
+    }

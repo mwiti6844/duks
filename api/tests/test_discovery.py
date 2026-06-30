@@ -13,6 +13,99 @@ def test_search_returns_car_cards(client, auth):
     assert all(c["make"] == "Subaru" for c in cars)
 
 
+def test_broad_buy_request_starts_conversational_intake_without_catalogue_dump(
+    client, auth
+):
+    events = sse.chat(client, auth, "I'd like to buy a car", "sess-natural-buy")
+    comps = sse.components(events)
+    tools = [data for event, data in events if event == "tool"]
+
+    assert any(event == "token" for event, _ in events)
+    assert not any(c["type"] == "car_card_list" for c in comps)
+    assert not any(t["name"] == "search_cars" for t in tools)
+
+
+def test_buy_intake_collects_preferences_then_searches(client, auth):
+    sid = "sess-buy-intake"
+    first = sse.chat(client, auth, "I want to buy a car", sid)
+    assert any(event == "token" for event, _ in first)
+
+    second = sse.chat(client, auth, "Mostly family trips and the school run", sid)
+    assert any(event == "token" for event, _ in second)
+    assert not any(c["type"] == "car_card_list" for c in sse.components(second))
+
+    third = sse.chat(client, auth, "My budget is KES 2.5M", sid)
+    car_list = next(
+        c for c in sse.components(third) if c["type"] == "car_card_list"
+    )
+    assert car_list["props"]["cars"]
+    assert len(car_list["props"]["cars"]) <= 8
+    assert all(c["price_kes"] <= 2_500_000 for c in car_list["props"]["cars"])
+    assert all(
+        c["body_type"] in {"SUV", "Station Wagon"}
+        for c in car_list["props"]["cars"]
+    )
+
+
+def test_natural_language_range_and_mileage_constraints_reach_database(client, auth):
+    events = sse.chat(
+        client,
+        auth,
+        "I'd like a low mileage car, under 150000 km and between 800k and 2m",
+        "sess-rich-search",
+    )
+    car_list = next(
+        c for c in sse.components(events) if c["type"] == "car_card_list"
+    )
+    cars = car_list["props"]["cars"]
+
+    assert cars
+    assert all(800_000 <= car["price_kes"] <= 2_000_000 for car in cars)
+    assert all(car["mileage_km"] <= 150_000 for car in cars)
+    assert [car["mileage_km"] for car in cars] == sorted(
+        car["mileage_km"] for car in cars
+    )
+
+    started = next(
+        data for event, data in events
+        if event == "tool" and data["name"] == "search_cars"
+        and data["status"] == "started"
+    )
+    assert started["params"]["min_price_kes"] == 800_000
+    assert started["params"]["max_price_kes"] == 2_000_000
+    assert started["params"]["max_mileage_km"] == 150_000
+    assert started["params"]["sort_by"] == "mileage_asc"
+
+
+def test_followup_refines_previous_search_and_can_remove_constraint(client, auth):
+    sid = "sess-search-refine"
+    first = sse.chat(
+        client,
+        auth,
+        "Find cars between 800k and 2m under 150000 km",
+        sid,
+    )
+    assert any(c["type"] == "car_card_list" for c in sse.components(first))
+
+    refined = sse.chat(client, auth, "Make them automatic and in Nairobi", sid)
+    cars = next(
+        c for c in sse.components(refined) if c["type"] == "car_card_list"
+    )["props"]["cars"]
+    assert cars
+    assert all(800_000 <= car["price_kes"] <= 2_000_000 for car in cars)
+    assert all(car["mileage_km"] <= 150_000 for car in cars)
+    assert all(car["transmission"] == "Automatic" for car in cars)
+    assert all("Nairobi" in car["location"] for car in cars)
+
+    widened = sse.chat(client, auth, "Ignore the mileage limit", sid)
+    started = next(
+        data for event, data in widened
+        if event == "tool" and data["name"] == "search_cars"
+        and data["status"] == "started"
+    )
+    assert "max_mileage_km" not in started["params"]
+
+
 def test_followup_loads_exact_displayed_car_from_db(client, auth):
     sid = "sess-car-details"
     sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)

@@ -3,7 +3,7 @@
 // (including SSE) straight through. CSRF-checks mutations.
 import { NextRequest } from "next/server";
 
-import { API_INTERNAL_URL, TOKEN_COOKIE } from "@/lib/config";
+import { API_INTERNAL_URL, SESSION_COOKIE, TOKEN_COOKIE } from "@/lib/config";
 import { sameOrigin } from "@/lib/csrf";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +48,16 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ proxy: string[]
   const ct = upstream.headers.get("content-type");
   if (ct) respHeaders.set("content-type", ct);
   respHeaders.set("cache-control", "no-store");
+  if (upstream.status === 401) {
+    respHeaders.append(
+      "set-cookie",
+      `${TOKEN_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`,
+    );
+    respHeaders.append(
+      "set-cookie",
+      `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`,
+    );
+  }
 
   return new Response(upstream.body, {
     status: upstream.status,

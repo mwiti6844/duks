@@ -53,10 +53,13 @@ def _router_node(state: GraphState, config, writer: StreamWriter) -> dict:
     deps = _deps(config)
     sid = state["session_id"]
     message = state["message"]
+    context = deps.sessions.get_state(sid)
 
     if state.get("action_intent"):
         intent = state["action_intent"]
         entities = state.get("action_entities", {})
+        if intent == "listings.sell":
+            deps.sessions.update_state(sid, listing_draft_paused=False)
         deps.sessions.update_state(
             sid,
             active_journey=_JOURNEY_BY_INTENT[intent],
@@ -72,10 +75,41 @@ def _router_node(state: GraphState, config, writer: StreamWriter) -> dict:
     # Sticky listing draft: while an unfinished sell draft is active, bypass the LLM
     # classifier entirely and route to the Listings agent (cancel escapes the flow).
     draft = deps.sessions.get_listing_draft(sid)
-    if draft is not None:
+    text = message.strip().lower()
+    resume_listing = any(
+        phrase in text for phrase in ("resume listing", "continue listing", "back to my listing")
+    )
+    pause_listing = any(
+        phrase in text for phrase in (
+            "pause listing", "pause this listing", "save and exit",
+            "come back to this", "do something else",
+        )
+    )
+    if draft is not None and resume_listing:
+        deps.sessions.update_state(sid, listing_draft_paused=False)
+        writer(Trace(
+            kind="routing",
+            label="session_continuation",
+            detail={"intent": "listings.sell", "reason": "resumed_listing_draft"},
+        ))
+        return {"intent": "listings.sell", "entities": {"resume_only": True}}
+    if draft is not None and pause_listing:
+        deps.sessions.update_state(sid, listing_draft_paused=True)
+        writer(Trace(
+            kind="routing",
+            label="session_continuation",
+            detail={"intent": "profile.summary", "reason": "paused_listing_draft"},
+        ))
+        return {"intent": "profile.summary", "entities": {}}
+    if draft is not None and not context.get("listing_draft_paused"):
         if _is_cancel(message):
             deps.sessions.clear_listing_draft(sid)
-            deps.sessions.update_state(sid, active_journey="profile", last_intent="profile.summary")
+            deps.sessions.update_state(
+                sid,
+                active_journey="profile",
+                last_intent="profile.summary",
+                listing_draft_paused=False,
+            )
             writer(Trace(kind="routing", label="intent",
                          detail={"intent": "profile.summary", "cancelled_draft": True}))
             return {"intent": "profile.summary", "entities": {}}
@@ -84,7 +118,6 @@ def _router_node(state: GraphState, config, writer: StreamWriter) -> dict:
                      detail={"intent": "listings.sell", "sticky_draft": True}))
         return {"intent": "listings.sell", "entities": {}}
 
-    context = deps.sessions.get_state(sid)
     if context.get("awaiting_finance_price") and router._parse_price(message):
         entities = router._heuristic_entities(message, "transaction.financing")
         deps.sessions.update_state(
@@ -97,6 +130,45 @@ def _router_node(state: GraphState, config, writer: StreamWriter) -> dict:
         ))
         return {"intent": "transaction.financing", "entities": entities}
 
+    if context.get("awaiting_buy_criteria"):
+        if _is_cancel(message):
+            deps.sessions.update_state(
+                sid,
+                active_journey="profile",
+                last_intent="profile.summary",
+                awaiting_buy_criteria=False,
+                buy_intake_step=None,
+                search_constraints={},
+            )
+            writer(Trace(
+                kind="routing",
+                label="session_continuation",
+                detail={"intent": "profile.summary", "reason": "cancelled_buy_intake"},
+            ))
+            return {"intent": "profile.summary", "entities": {}}
+        _, entities, version = router.classify(
+            message,
+            deps,
+            {
+                "active_journey": "buying",
+                "search_constraints": context.get("search_constraints", {}),
+                "buy_intake_step": context.get("buy_intake_step"),
+            },
+        )
+        deps.sessions.update_state(
+            sid, active_journey="buying", last_intent="discovery.search"
+        )
+        writer(Trace(
+            kind="routing",
+            label="session_continuation",
+            detail={
+                "intent": "discovery.search",
+                "reason": "awaiting_buy_criteria",
+                "router_prompt": version,
+            },
+        ))
+        return {"intent": "discovery.search", "entities": entities}
+
     routing_context = {
         "active_journey": state.get("conversation_context", {}).get("active_journey"),
         "last_intent": state.get("conversation_context", {}).get("last_intent"),
@@ -107,6 +179,8 @@ def _router_node(state: GraphState, config, writer: StreamWriter) -> dict:
         )[-800:],
     }
     intent, entities, version = router.classify(message, deps, routing_context)
+    if intent == "listings.sell":
+        deps.sessions.update_state(sid, listing_draft_paused=False)
     deps.sessions.update_state(
         sid,
         active_journey=_JOURNEY_BY_INTENT[intent],

@@ -6,11 +6,13 @@ this metadata, never the model's imagination.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from ..seed_data.faqs import KNOWLEDGE_DOCS
 
 _COLLECTION = "carduka_kb"
+logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class RetrievedChunk:
     source_id: str
@@ -85,6 +87,7 @@ class RagStore:
             # A transient embedding/backend failure (e.g. the macOS CoreML ONNX
             # provider) must degrade to a graceful "no sources" decline, never crash
             # the chat stream. Production (Linux/CPU) does not hit this path.
+            logger.exception("RAG retrieval failed")
             return []
         ids = res.get("ids", [[]])[0]
         docs = res.get("documents", [[]])[0]
