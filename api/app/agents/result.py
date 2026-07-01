@@ -131,6 +131,9 @@ class SaleEvidence(_StrictProps):
     sold_price_kes: int = Field(gt=0)
     year: int
     mileage_km: int = Field(ge=0)
+    make: str | None = None
+    model: str | None = None
+    body_type: str | None = None
 
 
 class PriceVerdictProps(_StrictProps):
@@ -138,6 +141,8 @@ class PriceVerdictProps(_StrictProps):
     verdict: Literal["fair", "below_market", "above_market", "insufficient_data"]
     car_id: str
     asking_price_kes: int = Field(gt=0)
+    # How the comparables were matched: same make/model, a similar body type, or none.
+    comparable_basis: Literal["same_model", "similar_body_type", "none"] | None = None
     comparable_median_kes: int | None = None
     comparable_low_kes: int | None = None
     comparable_high_kes: int | None = None

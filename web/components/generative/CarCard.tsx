@@ -49,10 +49,18 @@ export default function CarCard({
           </span>
         </div>
         <p className="mt-1 text-lg font-bold text-ink">{kes(car.price_kes)}</p>
+        {car.monthly_payment_kes ? (
+          <p className="text-xs font-medium text-slate-500">
+            from {kes(car.monthly_payment_kes)}/mo
+          </p>
+        ) : null}
         <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-600">
           <div>{km(car.mileage_km)}</div>
           <div>{car.transmission}</div>
+          <div>{car.fuel}</div>
+          {car.engine_cc ? <div>{car.engine_cc.toLocaleString()} cc</div> : null}
           <div>{car.body_type}</div>
+          {car.color ? <div>{car.color}</div> : null}
           <div>📍 {car.location}</div>
         </dl>
         {car.description && (

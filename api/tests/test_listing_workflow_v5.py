@@ -4,14 +4,16 @@ from . import sse_helper as sse
 
 
 def _ready(client, auth, sid: str) -> dict:
+    # Mazda Demio: in the fake extractor's vocabulary AND has a real sold
+    # comparable, so the price guidance has evidence to cite.
     turns = (
-        "Sell my 2016 Toyota Fielder",
+        "Sell my 2019 Mazda Demio",
         "120,000 km",
         "1.4M",
         "Automatic",
         "Petrol",
         "Good",
-        "Station Wagon",
+        "Hatchback",
         "Kiambu",
         "Well maintained family car with a clean interior.",
     )

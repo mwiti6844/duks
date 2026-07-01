@@ -366,6 +366,22 @@ def comparable_sales(
     return [_used_car_dto(db, r) for r in db.scalars(stmt).all()]
 
 
+def comparable_sales_by_body_type(
+    db: Session, *, body_type: str, exclude_id: str, limit: int = 6
+) -> list[UsedCarDTO]:
+    """Looser evidence: sold listings of the same body type, used only when no
+    same make/model comparable exists. Excludes the subject listing."""
+    stmt = (
+        select(models.UsedCarListing)
+        .where(models.UsedCarListing.status == "sold")
+        .where(models.UsedCarListing.body_type == body_type)
+        .where(models.UsedCarListing.id != exclude_id)
+        .order_by(models.UsedCarListing.sold_at.desc())
+        .limit(limit)
+    )
+    return [_used_car_dto(db, r) for r in db.scalars(stmt).all()]
+
+
 # ── Auctions ──
 def list_auctions(db: Session, limit: int = 12) -> list[AuctionDTO]:
     stmt = select(models.AuctionListing).order_by(models.AuctionListing.ends_at.asc()).limit(limit)

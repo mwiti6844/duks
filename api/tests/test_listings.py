@@ -143,7 +143,7 @@ def test_sticky_routing_and_cancel(client, auth):
     cancelled = sse.chat(client, auth, "cancel", sid)
     assert not sse.components(cancelled)
     # After cancel, a search routes normally again.
-    search = sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
+    search = sse.chat(client, auth, "Find me a Toyota Harrier under 6M", sid)
     assert any(c["type"] == "car_card_list" for c in sse.components(search))
 
 
@@ -155,7 +155,7 @@ def test_listing_draft_can_pause_and_resume_without_being_deleted(client, auth):
     paused = sse.chat(client, auth, "Pause this listing", sid)
     assert not any(c["type"] == "car_card_list" for c in sse.components(paused))
 
-    search = sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
+    search = sse.chat(client, auth, "Find me a Toyota Harrier under 6M", sid)
     assert any(c["type"] == "car_card_list" for c in sse.components(search))
 
     resumed = sse.chat(client, auth, "Resume listing", sid)

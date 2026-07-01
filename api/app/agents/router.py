@@ -6,6 +6,7 @@ import json
 import re
 
 from ..prompts import load_prompt
+from . import tools
 from .deps import Deps
 
 _VALID_INTENTS = {
@@ -138,6 +139,33 @@ def _authoritative_intent(message: str) -> str | None:
             or "put my car up for sale" in t:
         return "listings.sell"
     return None
+
+
+def _focused_vehicle_fact_intent(message: str, context: dict | None) -> str | None:
+    """Route a spec question about the car being viewed to the DB detail path.
+
+    "How many CC does this car have?" is a database fact, not a policy question,
+    but the LLM often labels it rag.knowledge (a valid intent, so classify() would
+    keep it) and the RAG agent then declines. When a used car is focused and the
+    message is a vehicle-fact question — and is not some other actionable intent
+    that shares vocabulary — force discovery.search, whose detail branch answers
+    it from the database.
+    """
+    if not context or context.get("focused_entity_type") != "used_car":
+        return None
+    if not tools.is_vehicle_fact_question(message):
+        return None
+    t = message.lower()
+    if any(w in t for w in ("compare", "bid", "auction")) or re.search(r"\bsell\b", t):
+        return None
+    if any(w in t for w in ("fair", "worth it", "overpriced", "verdict")):
+        return None
+    if any(w in t for w in ("financ", "loan", "deposit", "instal", "repay")):
+        return None
+    # A genuine policy/how-does-it-work question still belongs to RAG.
+    if _authoritative_intent(message) == "rag.knowledge":
+        return None
+    return "discovery.search"
 
 
 def _heuristic_intent(message: str) -> str:
@@ -403,8 +431,12 @@ def classify(message: str, deps: Deps, context: dict | None = None) -> tuple[str
     # Explicit informational/actionable sell phrasing is authoritative. The LLM may
     # return another *valid* intent, which would otherwise bypass the fallback.
     authoritative = _authoritative_intent(message)
+    focused_fact_intent = _focused_vehicle_fact_intent(message, context)
     if authoritative is not None:
         intent = authoritative
+    elif focused_fact_intent is not None:
+        # Must win over a *valid* LLM rag.knowledge for focused-car spec questions.
+        intent = focused_fact_intent
     elif intent not in _VALID_INTENTS:
         intent = _heuristic_intent(message)
     # Always merge deterministic entity parsing (numbers/models) — the heuristic

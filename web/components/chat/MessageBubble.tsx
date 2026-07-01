@@ -3,6 +3,22 @@ import type { ChatMessage, GenComponent, UIAction } from "@/lib/types";
 
 import TracePanel from "./TracePanel";
 
+// Generative components render in the assistant column (full width). Cap them so
+// they stay readable instead of sprawling edge-to-edge: tables/grids get more
+// room, a single detail card a little less, and everything else stays compact.
+const WIDE_COMPONENTS = new Set([
+  "comparison_table",
+  "car_card_list",
+  "auction_countdown",
+]);
+const MEDIUM_COMPONENTS = new Set(["vehicle_detail"]);
+
+function componentMaxWidth(type: string): string {
+  if (WIDE_COMPONENTS.has(type)) return "max-w-4xl";
+  if (MEDIUM_COMPONENTS.has(type)) return "max-w-3xl";
+  return "max-w-2xl";
+}
+
 export default function MessageBubble({
   message,
   onAction,
@@ -45,7 +61,7 @@ export default function MessageBubble({
               {block.text}
             </div>
           ) : (
-            <div key={i}>
+            <div key={i} className={componentMaxWidth(block.component_type)}>
               {renderComponent(
                 { type: block.component_type, props: block.props } as GenComponent,
                 `${message.id}-${i}`,

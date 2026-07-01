@@ -6,7 +6,7 @@ from . import sse_helper as sse
 def test_compare_first_two_resolves_from_display_state(client, auth):
     sid = "sess-ordinal"
     # First search populates displayed_used_car_ids in session state.
-    search = sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
+    search = sse.chat(client, auth, "Find me a Toyota Harrier under 6M", sid)
     shown = sse.components(search)[0]["props"]["cars"]
     assert len(shown) >= 2
 
@@ -25,7 +25,7 @@ def test_compare_without_results_declines(client, auth):
 
 def test_named_and_numeric_comparison_references_follow_conversation(client, auth):
     sid = "sess-contextual-compare"
-    search = sse.chat(client, auth, "What options do I have below 1.5M?", sid)
+    search = sse.chat(client, auth, "What options do I have below 2M?", sid)
     shown = next(
         component for component in sse.components(search)
         if component["type"] == "car_card_list"
@@ -35,31 +35,31 @@ def test_named_and_numeric_comparison_references_follow_conversation(client, aut
         car for car in shown
         if car["year"] == 2007 and car["make"] == "Nissan" and car["model"] == "AD"
     )
-    demio = next(
+    vezel = next(
         car for car in shown
-        if car["year"] == 2016 and car["make"] == "Mazda" and car["model"] == "Demio"
+        if car["year"] == 2014 and car["make"] == "Honda" and car["model"] == "Vezel"
     )
-    note_2018 = next(
+    aclass = next(
         car for car in shown
-        if car["year"] == 2018 and car["make"] == "Nissan" and car["model"] == "Note"
+        if car["year"] == 2016 and car["make"] == "Mercedes Benz"
     )
 
     sse.chat(client, auth, "Tell me more about the 2007 Nissan AD", sid)
-    compare_demio = sse.chat(
-        client, auth, "How does this compare to the 2016 Mazda Demio?", sid
+    compare_vezel = sse.chat(
+        client, auth, "How does this compare to the 2014 Honda Vezel?", sid
     )
     table = next(
-        component for component in sse.components(compare_demio)
+        component for component in sse.components(compare_vezel)
         if component["type"] == "comparison_table"
     )
     assert [car["id"] for car in table["props"]["cars"]] == [
-        nissan_ad["id"], demio["id"]
+        nissan_ad["id"], vezel["id"]
     ]
 
     compare_second = sse.chat(
         client,
         auth,
-        "What of the 2018 Nissan Note, how does it compare against the 2?",
+        "What of the 2016 A-Class, how does it compare against the 2?",
         sid,
     )
     table = next(
@@ -67,7 +67,7 @@ def test_named_and_numeric_comparison_references_follow_conversation(client, aut
         if component["type"] == "comparison_table"
     )
     assert [car["id"] for car in table["props"]["cars"]] == [
-        note_2018["id"], shown[1]["id"]
+        aclass["id"], shown[1]["id"]
     ]
 
 

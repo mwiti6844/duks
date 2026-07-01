@@ -15,6 +15,7 @@ node_modules/
 out/
 .turbo/
 next-env.d.ts
+*.tsbuildinfo
 
 # Env
 .env

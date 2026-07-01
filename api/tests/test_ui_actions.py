@@ -4,7 +4,8 @@ from . import sse_helper as sse
 
 
 def _search(client, auth, sid: str) -> list[dict]:
-    events = sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
+    # A make + price search returns enough real listings for cars[1]/cars[3] picks.
+    events = sse.chat(client, auth, "Find me a Toyota under 6M", sid)
     return next(c for c in sse.components(events) if c["type"] == "car_card_list")[
         "props"
     ]["cars"]
@@ -85,7 +86,7 @@ def test_compare_action_uses_explicit_visible_ids(client, auth):
 
 def test_search_emits_executable_suggestions_and_turns_restore(client, auth):
     sid = "sess-action-restore"
-    events = sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
+    events = sse.chat(client, auth, "Find me a Toyota Harrier under 6M", sid)
     followups = next(
         component for component in sse.components(events)
         if component["type"] == "follow_up_suggestions"

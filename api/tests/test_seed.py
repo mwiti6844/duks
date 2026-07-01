@@ -12,14 +12,14 @@ def _count(db) -> int:
 
 
 def test_seed_is_per_row_idempotent_and_augments(client):
-    """Re-seeding over an already-seeded DB must not duplicate rows, and the DB must
-    contain BOTH curated hero rows and real scraped rows."""
+    """Re-seeding over an already-seeded DB must not duplicate rows. The catalog is
+    real scraped listings only (every row carries full data)."""
     with SessionLocal() as db:
         before = _count(db)
         images_before = db.scalar(select(func.count()).select_from(UsedCarImage))
-        # Curated hero row (demo/tests depend on it) and a real scraped row both present.
-        assert db.get(UsedCarListing, "car_for_01") is not None  # Subaru Forester (curated)
-        assert db.get(UsedCarListing, "car_real_01") is not None  # real scraped listing
+        # Real scraped listing present; synthetic filler rows are no longer seeded.
+        assert db.get(UsedCarListing, "car_real_01") is not None
+        assert db.get(UsedCarListing, "car_for_01") is None
         # Seeding again is a no-op (per-row idempotency by id).
         seed_all(db)
         seed_all(db)
@@ -33,5 +33,5 @@ def test_sold_comparables_present(client):
         sold = db.scalars(
             select(UsedCarListing.id).where(UsedCarListing.status == "sold")
         ).all()
-        assert any(i.startswith("car_for_") for i in sold)  # curated Forester comps
-        assert any(i.startswith("car_real_") for i in sold)  # simulated-from-real comps
+        assert sold
+        assert all(i.startswith("car_real_") for i in sold)  # real sold comparables

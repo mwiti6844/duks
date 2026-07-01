@@ -1,4 +1,4 @@
-{"name": "search_to_compare", "turns": ["Find me a Subaru Forester under 2.5M", "Compare the first two"], "expect_components": ["car_card_list", "comparison_table"]}
-{"name": "verdict_then_financing", "turns": ["Find me a Toyota Premio", "Is the price fair?", "What would financing look like?"], "expect_components": ["car_card_list", "price_verdict", "financing_calculator"]}
+{"name": "search_to_compare", "turns": ["Find me a Toyota Harrier under 6M", "Compare the first two"], "expect_components": ["car_card_list", "comparison_table"]}
+{"name": "verdict_then_financing", "turns": ["Find me a Toyota Harrier under 6M", "Is the price fair?", "What would financing look like?"], "expect_components": ["car_card_list", "price_verdict", "financing_calculator"]}
 {"name": "auction_to_bid", "turns": ["Show me auctions", "Bid 1.8M on the Subaru Forester"], "expect_components": ["auction_countdown", "bid_confirm_modal"]}
 {"name": "knowledge_with_citations", "turns": ["How do auctions work?"], "expect_components": ["knowledge_answer"]}

@@ -50,7 +50,7 @@ def test_chat_persists_replayable_ordered_components(client, auth):
         "/api/chat",
         headers=auth,
         json={
-            "message": "Find me a Subaru Forester under 2.5M",
+            "message": "Find me a Toyota Harrier under 6M",
             "thread_id": thread["id"],
         },
     )

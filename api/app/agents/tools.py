@@ -222,14 +222,25 @@ def compare_cars(db: Session, car_ids: list[str]) -> list[UsedCarDTO]:
 
 
 def price_verdict(db: Session, car: UsedCarDTO) -> dict:
-    """Deterministic verdict over SOLD comparables. Evidence = sold listing ids."""
+    """Deterministic verdict over SOLD comparables. Evidence = sold listing ids.
+
+    Prefers same make/model sales; when none exist, falls back to same body-type
+    sales (looser evidence) and flags the basis so the answer stays honest.
+    """
     comps = repo.comparable_sales(db, make=car.make, model=car.model)
+    basis = "same_model"
+    if not comps:
+        comps = repo.comparable_sales_by_body_type(
+            db, body_type=car.body_type, exclude_id=car.id
+        )
+        basis = "similar_body_type"
     sold_prices = [c.sold_price_kes for c in comps if c.sold_price_kes]
     if not sold_prices:
         return {
             "verdict": "insufficient_data",
             "car_id": car.id,
             "asking_price_kes": car.price_kes,
+            "comparable_basis": "none",
             "evidence": [],
             "summary": "Not enough recent comparable sales to assess this price.",
         }
@@ -246,12 +257,17 @@ def price_verdict(db: Session, car: UsedCarDTO) -> dict:
         "verdict": verdict,
         "car_id": car.id,
         "asking_price_kes": car.price_kes,
+        "comparable_basis": basis,
         "comparable_median_kes": median,
         "comparable_low_kes": low,
         "comparable_high_kes": high,
         "delta_pct": delta_pct,
         "evidence": [
-            {"sale_id": c.id, "sold_price_kes": c.sold_price_kes, "year": c.year, "mileage_km": c.mileage_km}
+            {
+                "sale_id": c.id, "sold_price_kes": c.sold_price_kes,
+                "year": c.year, "mileage_km": c.mileage_km,
+                "make": c.make, "model": c.model, "body_type": c.body_type,
+            }
             for c in comps
         ],
     }

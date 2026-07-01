@@ -12,7 +12,7 @@ from . import sse_helper as sse
 
 def test_context_survives_bootstrap_and_tracks_journey(client, auth):
     sid = "sess-context-bootstrap"
-    sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
+    sse.chat(client, auth, "Find me a Toyota Harrier under 6M", sid)
     response = client.get(
         "/api/session/bootstrap", headers=auth, params={"session_id": sid}
     )
@@ -22,7 +22,7 @@ def test_context_survives_bootstrap_and_tracks_journey(client, auth):
     assert context["focused_entity_type"] == "used_car"
     assert context["focused_entity_id"].startswith("car_")
     assert context["displayed_used_car_ids"]
-    assert "Subaru Forester" in context["conversation_summary"]
+    assert "Harrier" in context["conversation_summary"]
 
 
 def test_explicit_user_memory_is_durable_across_sessions(client, auth):

@@ -10,7 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..seed_data import auctions as auctions_seed
-from ..seed_data import cars as cars_seed
 from ..seed_data import real_cars as real_cars_seed
 from ..seed_data import users as users_seed
 from . import models
@@ -91,13 +90,13 @@ def _insert_car_if_absent(db: Session, row: dict, *, status: str, sold_at: datet
 
 
 def seed_cars(db: Session) -> None:
-    # Active: curated hero rows (need image + fuel default) then the real scraped rows.
-    for r in cars_seed.with_images(cars_seed.ACTIVE_CARS):
-        _insert_car_if_absent(db, dict(r), status="active")
+    # Real scraped listings only — every record carries full data (engine CC, trim,
+    # colour, finance, gallery, description). The synthetic hero/filler rows were
+    # dropped so users never hit a sparse listing.
     for r in real_cars_seed.REAL_ACTIVE:
         _insert_car_if_absent(db, dict(r), status="active")
-    # Sold comparables (curated + simulated-from-real); sold_at is relative to now.
-    for r in list(cars_seed.with_images(cars_seed.SOLD_CARS)) + list(real_cars_seed.REAL_SOLD):
+    # Sold comparables for the price verdict; sold_at is relative to now.
+    for r in real_cars_seed.REAL_SOLD:
         row = dict(r)
         days = row.pop("sold_days_ago")
         _insert_car_if_absent(db, row, status="sold", sold_at=_utcnow() - timedelta(days=days))

@@ -5,3 +5,7 @@ Explain the verdict conversationally in 2 concise sentences. Mention the most us
 price comparison or evidence count when available, and give one sensible next step.
 Use only supplied figures. Do not claim the car is mechanically sound and do not turn
 the analysis into financial advice.
+
+Be honest about the evidence: if `comparable_basis` is "similar_body_type", describe
+the comparables as similar vehicles of the same body type (not the same model). If it
+is "none", say there aren't enough comparable sales yet rather than inventing a figure.

@@ -4,13 +4,13 @@ from . import sse_helper as sse
 
 
 def test_search_returns_car_cards(client, auth):
-    events = sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", "sess-search")
+    events = sse.chat(client, auth, "Find me a Toyota Harrier under 6M", "sess-search")
     comps = sse.components(events)
     assert any(c["type"] == "car_card_list" for c in comps)
     car_list = next(c for c in comps if c["type"] == "car_card_list")
     cars = car_list["props"]["cars"]
-    assert cars and all(c["price_kes"] <= 2_500_000 for c in cars)
-    assert all(c["make"] == "Subaru" for c in cars)
+    assert cars and all(c["price_kes"] <= 6_000_000 for c in cars)
+    assert all(c["make"] == "Toyota" for c in cars)
 
 
 def test_broad_buy_request_starts_conversational_intake_without_catalogue_dump(
@@ -108,14 +108,14 @@ def test_followup_refines_previous_search_and_can_remove_constraint(client, auth
 
 def test_followup_loads_exact_displayed_car_from_db(client, auth):
     sid = "sess-car-details"
-    sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
-    events = sse.chat(client, auth, "Tell me more about the 2015 Subaru Forester", sid)
+    sse.chat(client, auth, "Find me a Toyota Harrier under 6M", sid)
+    events = sse.chat(client, auth, "Tell me more about the 2019 Toyota Harrier", sid)
 
     cards = [c for c in sse.components(events) if c["type"] == "vehicle_detail"]
     assert len(cards) == 1
-    assert cards[0]["props"]["car"]["year"] == 2015
-    assert cards[0]["props"]["car"]["make"] == "Subaru"
-    assert cards[0]["props"]["car"]["model"] == "Forester"
+    assert cards[0]["props"]["car"]["year"] == 2019
+    assert cards[0]["props"]["car"]["make"] == "Toyota"
+    assert cards[0]["props"]["car"]["model"] == "HARRIER"
     tools = [data for event, data in events if event == "tool"]
     assert any(t["name"] == "get_displayed_car" and t["status"] == "completed"
                and t["detail"]["car_id"] for t in tools)
@@ -123,15 +123,15 @@ def test_followup_loads_exact_displayed_car_from_db(client, auth):
 
 def test_followup_can_resolve_unique_year_reference(client, auth):
     sid = "sess-car-year-reference"
-    sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
-    events = sse.chat(client, auth, "What about the 2017 one?", sid)
+    sse.chat(client, auth, "Find me a Toyota Harrier under 6M", sid)
+    events = sse.chat(client, auth, "What about the 2019 one?", sid)
     card = next(c for c in sse.components(events) if c["type"] == "vehicle_detail")
-    assert card["props"]["car"]["year"] == 2017
+    assert card["props"]["car"]["year"] == 2019
 
 
 def test_pronoun_resolves_focused_database_row(client, auth):
     sid = "sess-focused-pronoun"
-    search = sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
+    search = sse.chat(client, auth, "Find me a Toyota Harrier under 6M", sid)
     first = next(c for c in sse.components(search) if c["type"] == "car_card_list")
     focused = first["props"]["cars"][0]
 
@@ -142,7 +142,7 @@ def test_pronoun_resolves_focused_database_row(client, auth):
 
 def test_detail_reference_resolves_displayed_ordinal(client, auth):
     sid = "sess-detail-ordinal"
-    search = sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
+    search = sse.chat(client, auth, "Find me a Toyota Harrier under 6M", sid)
     cars = next(c for c in sse.components(search) if c["type"] == "car_card_list")
     events = sse.chat(client, auth, "Tell me more about the second one", sid)
     card = next(c for c in sse.components(events) if c["type"] == "vehicle_detail")
@@ -159,5 +159,5 @@ def test_auctions_returns_countdown(client, auth):
 
 
 def test_done_event_present(client, auth):
-    events = sse.chat(client, auth, "Find a Toyota Fielder", "sess-done")
+    events = sse.chat(client, auth, "Find a Toyota Harrier", "sess-done")
     assert events[-1][0] == "done"
