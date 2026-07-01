@@ -111,11 +111,11 @@ def test_followup_loads_exact_displayed_car_from_db(client, auth):
     sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
     events = sse.chat(client, auth, "Tell me more about the 2015 Subaru Forester", sid)
 
-    cards = [c for c in sse.components(events) if c["type"] == "car_card"]
+    cards = [c for c in sse.components(events) if c["type"] == "vehicle_detail"]
     assert len(cards) == 1
-    assert cards[0]["props"]["year"] == 2015
-    assert cards[0]["props"]["make"] == "Subaru"
-    assert cards[0]["props"]["model"] == "Forester"
+    assert cards[0]["props"]["car"]["year"] == 2015
+    assert cards[0]["props"]["car"]["make"] == "Subaru"
+    assert cards[0]["props"]["car"]["model"] == "Forester"
     tools = [data for event, data in events if event == "tool"]
     assert any(t["name"] == "get_displayed_car" and t["status"] == "completed"
                and t["detail"]["car_id"] for t in tools)
@@ -125,8 +125,8 @@ def test_followup_can_resolve_unique_year_reference(client, auth):
     sid = "sess-car-year-reference"
     sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
     events = sse.chat(client, auth, "What about the 2017 one?", sid)
-    card = next(c for c in sse.components(events) if c["type"] == "car_card")
-    assert card["props"]["year"] == 2017
+    card = next(c for c in sse.components(events) if c["type"] == "vehicle_detail")
+    assert card["props"]["car"]["year"] == 2017
 
 
 def test_pronoun_resolves_focused_database_row(client, auth):
@@ -136,8 +136,8 @@ def test_pronoun_resolves_focused_database_row(client, auth):
     focused = first["props"]["cars"][0]
 
     events = sse.chat(client, auth, "Tell me more about it", sid)
-    card = next(c for c in sse.components(events) if c["type"] == "car_card")
-    assert card["props"]["id"] == focused["id"]
+    card = next(c for c in sse.components(events) if c["type"] == "vehicle_detail")
+    assert card["props"]["car"]["id"] == focused["id"]
 
 
 def test_detail_reference_resolves_displayed_ordinal(client, auth):
@@ -145,8 +145,8 @@ def test_detail_reference_resolves_displayed_ordinal(client, auth):
     search = sse.chat(client, auth, "Find me a Subaru Forester under 2.5M", sid)
     cars = next(c for c in sse.components(search) if c["type"] == "car_card_list")
     events = sse.chat(client, auth, "Tell me more about the second one", sid)
-    card = next(c for c in sse.components(events) if c["type"] == "car_card")
-    assert card["props"]["id"] == cars["props"]["cars"][1]["id"]
+    card = next(c for c in sse.components(events) if c["type"] == "vehicle_detail")
+    assert card["props"]["car"]["id"] == cars["props"]["cars"][1]["id"]
 
 
 def test_auctions_returns_countdown(client, auth):

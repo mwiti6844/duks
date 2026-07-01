@@ -32,16 +32,24 @@ interface Props {
   images: Array<{ id: string; secure_url: string }>;
   mode: "create" | "edit";
   restored?: boolean;
+  action_status?: "published";
+  receipt?: { listing_id: string; created: boolean; operation: "create" | "edit" };
 }
 
 type Status = "pending" | "publishing" | "published" | "cancelled" | "error";
 
 export default function ListingSummary(p: Props) {
-  const [status, setStatus] = useState<Status>("pending");
-  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState<Status>(
+    p.action_status === "published" ? "published" : "pending",
+  );
+  const [message, setMessage] = useState(
+    p.action_status === "published" ? "This listing has already been published." : "",
+  );
   const [editing, setEditing] = useState(false);
   const [data, setData] = useState(p);
-  const [receipt, setReceipt] = useState<{ id: string; created: boolean } | null>(null);
+  const [receipt, setReceipt] = useState<{ id: string; created: boolean } | null>(
+    p.receipt ? { id: p.receipt.listing_id, created: p.receipt.created } : null,
+  );
 
   const sessionId =
     typeof window !== "undefined" ? localStorage.getItem("carduka_sid") || "" : "";

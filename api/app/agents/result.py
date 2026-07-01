@@ -27,6 +27,7 @@ class ComponentType(str, Enum):
     LISTING_PRICE_GUIDANCE = "listing_price_guidance"
     LISTING_PUBLISH_RECEIPT = "listing_publish_receipt"
     FOLLOW_UP_SUGGESTIONS = "follow_up_suggestions"
+    VEHICLE_DETAIL = "vehicle_detail"
 
 
 class Component(BaseModel):
@@ -52,6 +53,19 @@ class CarProps(_StrictProps):
     body_type: str
     image_url: str
     description: str | None = None
+    trim: str | None = None
+    color: str | None = None
+    engine_cc: int | None = None
+    monthly_payment_kes: int | None = None
+    finance_term_months: int | None = None
+    source_url: str | None = None
+    image_urls: list[str] = Field(default_factory=list)
+
+
+class VehicleDetailProps(_StrictProps):
+    car: CarProps
+    facts: dict[str, Any]
+    image_urls: list[str]
 
 
 class CarCardListProps(_StrictProps):
@@ -60,6 +74,7 @@ class CarCardListProps(_StrictProps):
 
 class ComparisonTableProps(_StrictProps):
     cars: list[CarProps] = Field(min_length=2)
+    fact_groups: list[str] = Field(default_factory=list)
 
 
 class FinancingCalculatorProps(_StrictProps):
@@ -267,6 +282,7 @@ _PROP_MODELS: dict[ComponentType, type[BaseModel]] = {
     ComponentType.LISTING_PRICE_GUIDANCE: ListingPriceGuidanceProps,
     ComponentType.LISTING_PUBLISH_RECEIPT: ListingPublishReceiptProps,
     ComponentType.FOLLOW_UP_SUGGESTIONS: FollowUpSuggestionsProps,
+    ComponentType.VEHICLE_DETAIL: VehicleDetailProps,
 }
 
 

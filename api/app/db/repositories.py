@@ -5,12 +5,21 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from . import models
-from .dto import AuctionDTO, BidDTO, FinancingDTO, UsedCarDTO, UserDTO, UserMemoryDTO
+from .dto import (
+    AuctionDTO,
+    BidDTO,
+    ConversationMessageDTO,
+    ConversationThreadDTO,
+    FinancingDTO,
+    UsedCarDTO,
+    UserDTO,
+    UserMemoryDTO,
+)
 
 
 # ── Users ──
@@ -67,6 +76,223 @@ def distinct_vehicle_facets(db: Session) -> tuple[list[str], list[str]]:
     return makes, body_types
 
 
+def distinct_vehicle_catalog(db: Session) -> tuple[list[str], list[str]]:
+    makes = list(db.scalars(select(models.UsedCarListing.make).distinct()).all())
+    models_ = list(db.scalars(select(models.UsedCarListing.model).distinct()).all())
+    return makes, models_
+
+
+def _used_car_dto(db: Session, row: models.UsedCarListing) -> UsedCarDTO:
+    images = list(db.scalars(
+        select(models.UsedCarImage)
+        .where(models.UsedCarImage.listing_id == row.id)
+        .order_by(models.UsedCarImage.sort_order.asc())
+    ).all())
+    try:
+        specs = json.loads(row.specs_json or "{}")
+    except json.JSONDecodeError:
+        specs = {}
+    dto = UsedCarDTO.model_validate(row)
+    image_urls = [image.url for image in images]
+    if not image_urls and row.image_url:
+        image_urls = [row.image_url]
+    return dto.model_copy(update={"specs": specs, "image_urls": image_urls})
+
+
+# ── Durable conversation threads ──
+def _thread_dto(row: models.ConversationThread) -> ConversationThreadDTO:
+    return ConversationThreadDTO.model_validate(row)
+
+
+def _message_dto(row: models.ConversationMessage) -> ConversationMessageDTO:
+    return ConversationMessageDTO(
+        id=row.id,
+        thread_id=row.thread_id,
+        role=row.role,
+        status=row.status,
+        sequence_number=row.sequence_number,
+        content=json.loads(row.content_json or "[]"),
+        trace=json.loads(row.trace_json or "[]"),
+        tools=json.loads(row.tools_json or "[]"),
+        created_at=row.created_at,
+    )
+
+
+def create_conversation_thread(
+    db: Session, *, user_id: str, thread_id: str | None = None, title: str | None = None
+) -> ConversationThreadDTO:
+    now = _utcnow()
+    row = models.ConversationThread(
+        id=thread_id or f"thread_{uuid.uuid4().hex}",
+        user_id=user_id,
+        title=(title or "New conversation")[:100],
+        title_locked=bool(title),
+        created_at=now,
+        updated_at=now,
+        last_message_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _thread_dto(row)
+
+
+def get_conversation_thread(
+    db: Session, *, thread_id: str, user_id: str
+) -> ConversationThreadDTO | None:
+    row = db.scalar(select(models.ConversationThread).where(
+        models.ConversationThread.id == thread_id,
+        models.ConversationThread.user_id == user_id,
+    ))
+    return _thread_dto(row) if row else None
+
+
+def ensure_conversation_thread(
+    db: Session, *, thread_id: str, user_id: str
+) -> ConversationThreadDTO:
+    existing = get_conversation_thread(db, thread_id=thread_id, user_id=user_id)
+    if existing:
+        return existing
+    occupied = db.get(models.ConversationThread, thread_id)
+    if occupied is not None:
+        raise PermissionError("Conversation belongs to another user")
+    return create_conversation_thread(db, user_id=user_id, thread_id=thread_id)
+
+
+def list_conversation_threads(
+    db: Session, *, user_id: str, limit: int = 20, offset: int = 0
+) -> tuple[list[ConversationThreadDTO], int | None]:
+    rows = list(db.scalars(
+        select(models.ConversationThread)
+        .where(
+            models.ConversationThread.user_id == user_id,
+            models.ConversationThread.status == "active",
+        )
+        .order_by(
+            models.ConversationThread.last_message_at.desc(),
+            models.ConversationThread.id.desc(),
+        )
+        .offset(offset)
+        .limit(limit + 1)
+    ).all())
+    next_offset = offset + limit if len(rows) > limit else None
+    return [_thread_dto(row) for row in rows[:limit]], next_offset
+
+
+def update_conversation_thread(
+    db: Session, *, thread_id: str, user_id: str,
+    title: str | None = None, status: str | None = None,
+    summary: str | None = None, context: dict | None = None,
+    title_locked: bool | None = None,
+) -> ConversationThreadDTO | None:
+    row = db.scalar(select(models.ConversationThread).where(
+        models.ConversationThread.id == thread_id,
+        models.ConversationThread.user_id == user_id,
+    ))
+    if row is None:
+        return None
+    if title is not None:
+        row.title = title.strip()[:100] or row.title
+    if title_locked is not None:
+        row.title_locked = title_locked
+    if status is not None:
+        row.status = status
+    if summary is not None:
+        row.summary = summary[-4_000:]
+    if context is not None:
+        row.context_json = json.dumps(context)
+    row.updated_at = _utcnow()
+    db.commit()
+    db.refresh(row)
+    return _thread_dto(row)
+
+
+def delete_conversation_thread(db: Session, *, thread_id: str, user_id: str) -> bool:
+    row = db.scalar(select(models.ConversationThread).where(
+        models.ConversationThread.id == thread_id,
+        models.ConversationThread.user_id == user_id,
+    ))
+    if row is None:
+        return False
+    db.execute(delete(models.ConversationMessage).where(
+        models.ConversationMessage.thread_id == thread_id,
+        models.ConversationMessage.user_id == user_id,
+    ))
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def append_conversation_message(
+    db: Session, *, thread_id: str, user_id: str, role: str,
+    content: list[dict], status: str = "complete",
+    trace: list[dict] | None = None, tools: list[dict] | None = None,
+    message_id: str | None = None,
+) -> ConversationMessageDTO:
+    thread = db.scalar(select(models.ConversationThread).where(
+        models.ConversationThread.id == thread_id,
+        models.ConversationThread.user_id == user_id,
+    ))
+    if thread is None:
+        raise ValueError("Conversation thread not found")
+    sequence = int(db.scalar(
+        select(func.coalesce(func.max(models.ConversationMessage.sequence_number), 0))
+        .where(models.ConversationMessage.thread_id == thread_id)
+    ) or 0) + 1
+    now = _utcnow()
+    row = models.ConversationMessage(
+        id=message_id or f"msg_{uuid.uuid4().hex}",
+        thread_id=thread_id,
+        user_id=user_id,
+        role=role,
+        status=status,
+        sequence_number=sequence,
+        content_json=json.dumps(content),
+        trace_json=json.dumps(trace or []),
+        tools_json=json.dumps(tools or []),
+        created_at=now,
+    )
+    db.add(row)
+    thread.last_message_at = now
+    thread.updated_at = now
+    if thread.title == "New conversation" and role == "user" and not thread.title_locked:
+        text = next(
+            (str(block.get("text", "")) for block in content if block.get("type") == "text"),
+            "",
+        ).strip()
+        if text:
+            thread.title = text[:57] + ("…" if len(text) > 57 else "")
+    db.commit()
+    db.refresh(row)
+    return _message_dto(row)
+
+
+def count_user_messages(db: Session, *, thread_id: str, user_id: str) -> int:
+    return int(db.scalar(
+        select(func.count(models.ConversationMessage.id)).where(
+            models.ConversationMessage.thread_id == thread_id,
+            models.ConversationMessage.user_id == user_id,
+            models.ConversationMessage.role == "user",
+        )
+    ) or 0)
+
+
+def list_conversation_messages(
+    db: Session, *, thread_id: str, user_id: str
+) -> list[ConversationMessageDTO] | None:
+    if get_conversation_thread(db, thread_id=thread_id, user_id=user_id) is None:
+        return None
+    rows = db.scalars(
+        select(models.ConversationMessage)
+        .where(
+            models.ConversationMessage.thread_id == thread_id,
+            models.ConversationMessage.user_id == user_id,
+        )
+        .order_by(models.ConversationMessage.sequence_number.asc())
+    ).all()
+    return [_message_dto(row) for row in rows]
+
+
 # ── Used cars ──
 def search_used_cars(
     db: Session,
@@ -117,12 +343,12 @@ def search_used_cars(
         "price_asc": models.UsedCarListing.price_kes.asc(),
     }.get(sort_by, models.UsedCarListing.price_kes.asc())
     stmt = stmt.order_by(order, models.UsedCarListing.price_kes.asc()).limit(limit)
-    return [UsedCarDTO.model_validate(r) for r in db.scalars(stmt).all()]
+    return [_used_car_dto(db, r) for r in db.scalars(stmt).all()]
 
 
 def get_used_car(db: Session, car_id: str) -> UsedCarDTO | None:
     row = db.get(models.UsedCarListing, car_id)
-    return UsedCarDTO.model_validate(row) if row else None
+    return _used_car_dto(db, row) if row else None
 
 
 def comparable_sales(
@@ -137,7 +363,7 @@ def comparable_sales(
         .order_by(models.UsedCarListing.sold_at.desc())
         .limit(limit)
     )
-    return [UsedCarDTO.model_validate(r) for r in db.scalars(stmt).all()]
+    return [_used_car_dto(db, r) for r in db.scalars(stmt).all()]
 
 
 # ── Auctions ──
@@ -250,7 +476,7 @@ def get_listing_by_draft_id(db: Session, draft_id: str) -> UsedCarDTO | None:
     row = db.scalar(
         select(models.UsedCarListing).where(models.UsedCarListing.source_draft_id == draft_id)
     )
-    return UsedCarDTO.model_validate(row) if row else None
+    return _used_car_dto(db, row) if row else None
 
 
 def list_user_listings(db: Session, owner_id: str) -> list[UsedCarDTO]:
@@ -259,7 +485,7 @@ def list_user_listings(db: Session, owner_id: str) -> list[UsedCarDTO]:
         .where(models.UsedCarListing.owner_id == owner_id)
         .order_by(models.UsedCarListing.id.desc())
     )
-    return [UsedCarDTO.model_validate(r) for r in db.scalars(stmt).all()]
+    return [_used_car_dto(db, r) for r in db.scalars(stmt).all()]
 
 
 def create_listing(
@@ -303,7 +529,7 @@ def create_listing(
             return winner, False
         raise
     db.refresh(row)
-    return UsedCarDTO.model_validate(row), True
+    return _used_car_dto(db, row), True
 
 
 # ── Durable listing drafts / images / revision receipts ──
@@ -425,7 +651,7 @@ def apply_listing_draft(db: Session, draft, *, image_ids: list[str]) -> tuple[Us
     existing_mutation = get_listing_mutation(db, draft.id, draft.revision)
     if existing_mutation:
         listing = db.get(models.UsedCarListing, existing_mutation.listing_id)
-        return UsedCarDTO.model_validate(listing), False
+        return _used_car_dto(db, listing), False
 
     fields = json.loads(draft.fields_json)
     if draft.mode == "edit":
@@ -488,4 +714,4 @@ def apply_listing_draft(db: Session, draft, *, image_ids: list[str]) -> tuple[Us
     draft.status = "published"
     db.commit()
     db.refresh(listing)
-    return UsedCarDTO.model_validate(listing), True
+    return _used_car_dto(db, listing), True

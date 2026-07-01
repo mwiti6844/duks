@@ -17,6 +17,13 @@ export interface CarProps {
   body_type: string;
   image_url?: string;
   description?: string | null;
+  trim?: string | null;
+  color?: string | null;
+  engine_cc?: number | null;
+  monthly_payment_kes?: number | null;
+  finance_term_months?: number | null;
+  source_url?: string | null;
+  image_urls?: string[];
 }
 
 export default function CarCard({
@@ -35,7 +42,7 @@ export default function CarCard({
       <div className="px-4 pb-4">
         <div className="flex items-baseline justify-between gap-2">
           <h3 className="font-semibold text-ink">
-            {car.year} {car.make} {car.model}
+            {car.year} {car.make} {car.model}{car.trim ? ` ${car.trim}` : ""}
           </h3>
           <span className="rounded-full bg-brand/25 px-2 py-0.5 text-xs font-medium text-ink">
             {car.condition}
@@ -82,7 +89,7 @@ export function CarCardList({
   onAction?: (label: string, action: UIAction) => void;
 }) {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
       {cars.map((c) => (
         <CarCard key={c.id} car={c} onAction={onAction} />
       ))}

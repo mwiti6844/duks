@@ -30,6 +30,7 @@ from .routes.health import router as health_router
 from .routes.listings import router as listings_router
 from .routes.listing_drafts import router as listing_drafts_router
 from .routes.session import router as session_router
+from .routes.threads import router as threads_router
 
 
 def _background_init(app: FastAPI) -> None:
@@ -108,6 +109,7 @@ def create_app(
     app.include_router(listings_router)
     app.include_router(listing_drafts_router)
     app.include_router(session_router)
+    app.include_router(threads_router)
 
     if eager_init:
         _background_init(app)

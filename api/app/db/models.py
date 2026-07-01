@@ -49,6 +49,47 @@ class UserMemory(Base):
     )
 
 
+class ConversationThread(Base):
+    """Durable, user-owned conversation independent of a browser session."""
+    __tablename__ = "conversation_threads"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String, default="New conversation")
+    title_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String, default="active", index=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    context_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, index=True
+    )
+    last_message_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True
+    )
+
+
+class ConversationMessage(Base):
+    """A replayable turn containing ordered text/component blocks."""
+    __tablename__ = "conversation_messages"
+    __table_args__ = (
+        UniqueConstraint("thread_id", "sequence_number", name="uq_thread_message_sequence"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    thread_id: Mapped[str] = mapped_column(
+        ForeignKey("conversation_threads.id"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="complete")
+    sequence_number: Mapped[int] = mapped_column(Integer)
+    content_json: Mapped[str] = mapped_column(Text, default="[]")
+    trace_json: Mapped[str] = mapped_column(Text, default="[]")
+    tools_json: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class UsedCarListing(Base):
     __tablename__ = "used_car_listings"
 
@@ -65,6 +106,17 @@ class UsedCarListing(Base):
     body_type: Mapped[str] = mapped_column(String, default="Station Wagon")
     image_url: Mapped[str] = mapped_column(String, default="")
     description: Mapped[str | None] = mapped_column(String, nullable=True)
+    trim: Mapped[str | None] = mapped_column(String, nullable=True)
+    color: Mapped[str | None] = mapped_column(String, nullable=True)
+    engine_cc: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    monthly_payment_kes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    finance_term_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    seller_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    location_detail: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_listing_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    source_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    grade_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    specs_json: Mapped[str] = mapped_column(Text, default="{}")
     # status: "active" listings are for sale; "sold" rows feed the price verdict.
     status: Mapped[str] = mapped_column(String, default="active", index=True)
     sold_price_kes: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -80,6 +132,22 @@ class UsedCarListing(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
+
+
+class UsedCarImage(Base):
+    """Ordered source images for catalogue listings."""
+    __tablename__ = "used_car_images"
+    __table_args__ = (
+        UniqueConstraint("listing_id", "sort_order", name="uq_used_car_image_order"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    listing_id: Mapped[str] = mapped_column(
+        ForeignKey("used_car_listings.id"), index=True
+    )
+    url: Mapped[str] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    source: Mapped[str] = mapped_column(String, default="carduka")
 
 
 class ListingDraft(Base):

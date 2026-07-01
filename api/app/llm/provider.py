@@ -124,6 +124,32 @@ class FakeProvider:
     def complete_json(self, *, system: str, user: str, max_tokens: int = 512) -> dict:
         if "LISTING_EXTRACTION" in system:
             return {"fields": self._fake_listing_fields(user)}
+        if "THREAD_TITLE" in system:
+            try:
+                payload = json.loads(user)
+                return {"title": payload.get("fallback_hint", "CarDuka conversation")}
+            except json.JSONDecodeError:
+                return {"title": "CarDuka conversation"}
+        if "VEHICLE_FACT_SELECTION" in system:
+            text = user.lower()
+            mapping = {
+                "engine": ("cc", "engine", "capacity", "displacement"),
+                "finance": ("monthly", "finance", "repayment"),
+                "color": ("color", "colour", "paint"),
+                "images": ("image", "photo", "picture", "gallery"),
+                "seller": ("seller", "dealer", "owner"),
+                "location": ("location", "where", "address"),
+                "features": ("feature", "sunroof", "camera", "leather", "sensor"),
+                "transmission": ("transmission", "gearbox", "automatic", "manual"),
+                "fuel": ("fuel", "petrol", "diesel", "hybrid"),
+                "mileage": ("mileage", "odometer", "kilomet"),
+                "price": ("price", "cost", "cash"),
+            }
+            fields = [
+                field for field, aliases in mapping.items()
+                if any(alias in text for alias in aliases)
+            ]
+            return {"fields": fields}
         # Return an empty intent so the router falls back to its deterministic
         # heuristic — that path is what the demo relies on when keyless.
         return {"intent": "", "entities": {}}

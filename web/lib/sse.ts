@@ -9,7 +9,7 @@ export interface SseEvent {
 
 export async function streamChat(
   message: string,
-  sessionId: string,
+  threadId: string,
   onEvent: (ev: SseEvent) => void,
   action?: UIAction,
   signal?: AbortSignal,
@@ -17,7 +17,7 @@ export async function streamChat(
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "content-type": "application/json", accept: "text/event-stream" },
-    body: JSON.stringify({ message, session_id: sessionId, action }),
+    body: JSON.stringify({ message, thread_id: threadId, action }),
     signal,
   });
   if (!res.ok || !res.body) {

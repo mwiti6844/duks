@@ -412,4 +412,34 @@ def classify(message: str, deps: Deps, context: dict | None = None) -> tuple[str
     merged = _normalize_entities(entities)
     # Deterministic parsing wins for numeric ranges and explicit known facets.
     merged.update(_heuristic_entities(message, intent))
+    # Catalogue vocabulary comes from the database, so newly ingested makes/models
+    # work without another hard-coded router release.
+    if deps.db_factory is not None and intent in {
+        "discovery.search", "discovery.compare", "discovery.verdict",
+        "transaction.financing", "transaction.bid",
+    }:
+        try:
+            from ..db import repositories as repo
+            with deps.db_factory() as db:
+                makes, models_ = repo.distinct_vehicle_catalog(db)
+            text = message.lower()
+            make = next(
+                (value for value in sorted(makes, key=len, reverse=True)
+                 if value.lower() in text),
+                None,
+            )
+            model = next(
+                (
+                    value for value in sorted(models_, key=len, reverse=True)
+                    if len(value.strip()) >= 2
+                    and re.search(rf"\b{re.escape(value.lower())}\b", text)
+                ),
+                None,
+            )
+            if make:
+                merged["make"] = make
+            if model:
+                merged["model"] = model
+        except Exception:
+            pass
     return intent, merged, version

@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 import openpyxl
 
@@ -53,12 +54,73 @@ def _body_type(model: str, cfg: str) -> str:
     return "Sedan"
 
 
-def _image(hdr, row) -> str:
+def _source_image(url: str) -> str | None:
+    for candidate in str(url).splitlines():
+        candidate = candidate.strip()
+        if not candidate or "logo" in candidate:
+            continue
+        if "www.carduka.com/_next/image" in candidate:
+            encoded = parse_qs(urlparse(candidate).query).get("url", [""])[0]
+            candidate = unquote(encoded)
+        if "prodapi.ncbagroup.com" in candidate:
+            return candidate
+    return None
+
+
+def _images(hdr, row) -> list[str]:
+    found: list[str] = []
     for name in ["image"] + [f"image{i}" for i in range(2, 11)] + ["image_1"]:
-        url = _col(hdr, row, name)
-        if url and "prodapi.ncbagroup.com" in str(url) and "logo" not in str(url):
-            return str(url)
-    return ""
+        value = _col(hdr, row, name)
+        if not value:
+            continue
+        for raw in str(value).splitlines():
+            image = _source_image(raw)
+            if image and image not in found:
+                found.append(image)
+    return found[:12]
+
+
+def _model_and_trim(configuration: str) -> tuple[str, str | None]:
+    value = " ".join(configuration.split())
+    lower = value.lower()
+    multiword = (
+        "land cruiser prado", "3 series", "a-class",
+    )
+    for model in multiword:
+        if lower.startswith(model):
+            canonical = value[:len(model)]
+            trim = value[len(model):].strip() or None
+            return canonical, trim
+    parts = value.split(maxsplit=1)
+    canonical = {
+        "ad": "AD", "axio": "AXIO", "juke": "JUKE", "rx200t": "RX200T",
+        "rav-4": "RAV-4", "hilux": "HILUX", "harrier": "HARRIER",
+        "demio": "DEMIO",
+    }.get(parts[0].lower(), parts[0].title())
+    return canonical, parts[1] if len(parts) > 1 else None
+
+
+def _description(value: object) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    # Public seller copy sometimes embeds personal mobile numbers. Keep all vehicle
+    # facts while directing users to the source listing for contact.
+    text = re.sub(r"(?<!\d)(?:\+?254|0)7\d{8}(?!\d)", "[contact via listing]", text)
+    return text[:4_000]
+
+
+def _features(description: str) -> list[str]:
+    parts = re.split(r"(?:\s[-•✅♦️]+\s*|\s{2,})", description)
+    result = []
+    for part in parts:
+        item = part.strip(" -•✅♦️")
+        if 3 <= len(item) <= 120 and item not in result:
+            result.append(item)
+    return result[:25]
+
+
+def _term_months(value: object) -> int | None:
+    match = re.search(r"for\s+(\d+)\s+years?", str(value or ""), re.I)
+    return int(match.group(1)) * 12 if match else None
 
 
 def main() -> None:
@@ -75,7 +137,7 @@ def main() -> None:
         cfg = (str(_col(hdr, row, "vehicleConfiguration") or "")).strip()
         ym = re.match(r"(\d{4})", title)
         year = int(ym.group(1)) if ym else 2015
-        model = cfg.split()[0] if cfg else "Unknown"
+        model, trim = _model_and_trim(cfg) if cfg else ("Unknown", None)
         price = _int(_col(hdr, row, "data3")) or _int(_col(hdr, row, "priceCurrency"))
         mileage = _int(_col(hdr, row, "data4")) or _int(_col(hdr, row, "data_10")) or 0
         trans = (str(_col(hdr, row, "vehicletransmission") or "automatic")).strip().title()
@@ -83,8 +145,15 @@ def main() -> None:
             trans = "Automatic"
         fuel = (str(_col(hdr, row, "fueltype") or "petrol")).strip().title()
         loc = (str(_col(hdr, row, "data7") or "Nairobi")).split(",")[0].strip()
-        desc = (str(_col(hdr, row, "car_description") or _col(hdr, row, "description") or "")).strip()
-        desc = re.sub(r"\s+", " ", desc)[:280]
+        desc = _description(
+            _col(hdr, row, "car_description") or _col(hdr, row, "description")
+        )
+        images = _images(hdr, row)
+        finance_monthly = _int(_col(hdr, row, "data2"))
+        finance_term_months = _term_months(_col(hdr, row, "data2"))
+        source_listing_id = str(_col(hdr, row, "listing_id") or "")
+        source_listing_id = re.sub(r"\D", "", source_listing_id) or None
+        location_detail = str(_col(hdr, row, "data7") or "").strip()
         if not make or not price:
             continue
         rec = {
@@ -99,8 +168,29 @@ def main() -> None:
             "location": loc or "Nairobi",
             "condition": "Good",
             "body_type": _body_type(model, cfg),
-            "image_url": _image(hdr, row),
+            "image_url": images[0] if images else "",
+            "image_urls": images,
             "description": desc,
+            "trim": trim,
+            "color": str(_col(hdr, row, "color") or "").strip().title() or None,
+            "engine_cc": _int(_col(hdr, row, "data_9") or _col(hdr, row, "data6")),
+            "monthly_payment_kes": finance_monthly,
+            "finance_term_months": finance_term_months,
+            "seller_name": str(_col(hdr, row, "data_7") or _col(hdr, row, "data5") or "").strip() or None,
+            "location_detail": location_detail or None,
+            "source_listing_id": source_listing_id,
+            "source_url": str(_col(hdr, row, "item_page_link") or "").strip() or None,
+            "grade_code": str(_col(hdr, row, "data_11") or _col(hdr, row, "data13") or "").strip() or None,
+            "specs": {
+                "title": str(_col(hdr, row, "item_page_title") or title).strip(),
+                "features": _features(desc),
+                "purchase_options": [
+                    value for value in (
+                        _col(hdr, row, "data_5") or _col(hdr, row, "data10"),
+                        _col(hdr, row, "data_8") or _col(hdr, row, "data9"),
+                    ) if value
+                ],
+            },
         }
         if i in SOLD:
             pct, days = SOLD[i]

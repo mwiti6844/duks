@@ -3,6 +3,7 @@ prompts. Tools return plain domain dicts; the SSE adapter turns them into UI eve
 """
 from __future__ import annotations
 
+import json
 import statistics
 from datetime import datetime, timezone
 
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from .. import bidsign
 from ..db import repositories as repo
 from ..db.dto import AuctionDTO, UsedCarDTO
+from ..llm.provider import LLMProvider
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -24,7 +26,7 @@ DEFAULT_TERM_MONTHS = 48
 MIN_DEPOSIT_PCT = 0.20
 
 
-def car_to_props(car: UsedCarDTO) -> dict:
+def car_to_props(car: UsedCarDTO, *, include_gallery: bool = False) -> dict:
     return {
         "id": car.id,
         "make": car.make,
@@ -39,7 +41,126 @@ def car_to_props(car: UsedCarDTO) -> dict:
         "body_type": car.body_type,
         "image_url": car.image_url,
         "description": car.description,
+        "trim": car.trim,
+        "color": car.color,
+        "engine_cc": car.engine_cc,
+        "monthly_payment_kes": car.monthly_payment_kes,
+        "finance_term_months": car.finance_term_months,
+        "source_url": car.source_url,
+        "image_urls": car.image_urls if include_gallery else car.image_urls[:1],
     }
+
+
+VEHICLE_FACT_FIELDS = (
+    "identity", "price", "finance", "mileage", "engine", "transmission",
+    "fuel", "body", "color", "condition", "location", "seller",
+    "listing_reference", "features", "description", "images",
+)
+
+_FACT_ALIASES = {
+    "engine": ("cc", "engine", "motor", "capacity", "displacement"),
+    "finance": ("monthly", "per month", "finance", "financing", "repayment"),
+    "color": ("color", "colour", "paint"),
+    "images": ("image", "images", "photo", "photos", "picture", "pictures", "gallery"),
+    "seller": ("seller", "dealer", "owner", "who is selling"),
+    "location": ("location", "where", "viewing", "address"),
+    "features": (
+        "feature", "features", "sunroof", "camera", "leather", "sensor",
+        "cruise", "safety", "interior", "extras",
+    ),
+    "listing_reference": ("listing id", "source", "link", "carduka page"),
+    "transmission": ("transmission", "gearbox", "automatic", "manual", "cvt"),
+    "fuel": ("fuel", "petrol", "diesel", "hybrid", "electric"),
+    "mileage": ("mileage", "odometer", "kilomet"),
+    "price": ("price", "cost", "cash"),
+    "body": ("body", "suv", "sedan", "hatchback", "pickup", "wagon"),
+    "condition": ("condition", "accident", "maintained"),
+    "identity": ("trim", "variant", "model", "year", "make"),
+    "description": ("description", "tell me more", "details", "what about"),
+}
+
+
+def is_vehicle_fact_question(message: str) -> bool:
+    text = message.lower()
+    return any(alias in text for aliases in _FACT_ALIASES.values() for alias in aliases)
+
+
+def select_vehicle_fact_fields(message: str, llm: LLMProvider) -> list[str]:
+    """Let the model select from a strict catalog, then validate deterministically."""
+    text = message.lower()
+    fallback = [
+        field for field, aliases in _FACT_ALIASES.items()
+        if any(alias in text for alias in aliases)
+    ]
+    if not fallback:
+        fallback = [
+            "identity", "price", "mileage", "engine", "transmission", "fuel",
+            "body", "color", "condition", "location", "features", "description",
+            "images",
+        ]
+    try:
+        result = llm.complete_json(
+            system=(
+                "VEHICLE_FACT_SELECTION\nSelect only the database fact groups needed "
+                "to answer the user's question. Never invent a field. Return JSON "
+                f'only: {{"fields":[...]}}. Allowed fields: {list(VEHICLE_FACT_FIELDS)}'
+            ),
+            user=message,
+            max_tokens=120,
+        )
+        proposed = result.get("fields", [])
+        validated = [field for field in proposed if field in VEHICLE_FACT_FIELDS]
+        return list(dict.fromkeys(validated or fallback))
+    except Exception:
+        return list(dict.fromkeys(fallback))
+
+
+def vehicle_facts(car: UsedCarDTO, fields: list[str]) -> dict:
+    """Return allow-listed, database-backed facts—never arbitrary ORM columns."""
+    all_facts = {
+        "identity": {
+            "year": car.year, "make": car.make, "model": car.model, "trim": car.trim,
+        },
+        "price": {"cash_price_kes": car.price_kes},
+        "finance": {
+            "monthly_payment_kes": car.monthly_payment_kes,
+            "term_months": car.finance_term_months,
+        },
+        "mileage": {"mileage_km": car.mileage_km},
+        "engine": {"engine_cc": car.engine_cc},
+        "transmission": {"transmission": car.transmission},
+        "fuel": {"fuel": car.fuel},
+        "body": {"body_type": car.body_type},
+        "color": {"color": car.color},
+        "condition": {"condition": car.condition},
+        "location": {
+            "area": car.location, "location_detail": car.location_detail,
+        },
+        "seller": {"seller_display_name": car.seller_name},
+        "listing_reference": {
+            "source_listing_id": car.source_listing_id, "source_url": car.source_url,
+        },
+        "features": {"features": car.specs.get("features", [])},
+        "description": {"description": car.description},
+        "images": {"image_count": len(car.image_urls)},
+    }
+    selected = {}
+    for field in fields:
+        values = {
+            key: value for key, value in all_facts[field].items()
+            if value not in (None, "", [])
+        }
+        if values:
+            selected[field] = values
+    return selected
+
+
+def vehicle_facts_context(car: UsedCarDTO, fields: list[str]) -> str:
+    return json.dumps({
+        "listing_id": car.id,
+        "requested_fact_groups": fields,
+        "facts": vehicle_facts(car, fields),
+    }, ensure_ascii=False)
 
 
 def auction_to_props(auction: AuctionDTO) -> dict:

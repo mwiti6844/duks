@@ -24,6 +24,39 @@ def bootstrap(
 ) -> dict:
     sessions = request.app.state.sessions
     sid = sessions.scoped_id(user.id, session_id)
+    # One-time compatibility migration: turn an existing Redis-only conversation
+    # into a durable thread without regenerating its interactive components.
+    legacy_turns = sessions.get_turns(sid)
+    durable_thread = repo.get_conversation_thread(
+        db, thread_id=session_id, user_id=user.id
+    )
+    if durable_thread is None and legacy_turns:
+        try:
+            durable_thread = repo.ensure_conversation_thread(
+                db, user_id=user.id, thread_id=session_id
+            )
+        except PermissionError:
+            durable_thread = repo.create_conversation_thread(db, user_id=user.id)
+        for turn in legacy_turns:
+            blocks: list[dict] = []
+            if turn.get("text"):
+                blocks.append({"type": "text", "text": turn["text"]})
+            for component in turn.get("components", []):
+                blocks.append({
+                    "type": "component",
+                    "component_type": component.get("type"),
+                    "schema_version": 1,
+                    "props": component.get("props", {}),
+                })
+            if blocks:
+                repo.append_conversation_message(
+                    db,
+                    thread_id=durable_thread.id,
+                    user_id=user.id,
+                    role=turn.get("role", "assistant"),
+                    content=blocks,
+                    message_id=f"{durable_thread.id}_{turn.get('id', 'legacy')}",
+                )
     cached_draft = sessions.get_listing_draft(sid)
     durable = (
         repo.get_listing_draft(db, cached_draft["draft_id"], user.id)
@@ -63,4 +96,5 @@ def bootstrap(
         # Resume an unfinished sell flow: surface a ready draft's listing_summary, or a
         # plain flag the UI can use to prompt the seller to continue.
         "listing_draft": cached_draft,
+        "thread_id": durable_thread.id if durable_thread else None,
     }

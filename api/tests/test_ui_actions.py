@@ -33,8 +33,8 @@ def test_select_car_action_uses_validated_id_not_visible_label(client, auth):
         elif line.startswith("data: ") and event_name:
             events.append((event_name, json.loads(line[6:])))
     card = next(data for event, data in events
-                if event == "component" and data["type"] == "car_card")
-    assert card["props"]["id"] == selected["id"]
+                if event == "component" and data["type"] == "vehicle_detail")
+    assert card["props"]["car"]["id"] == selected["id"]
     assert any(event == "trace" and data["label"] == "ui_action" for event, data in events)
 
 

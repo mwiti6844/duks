@@ -10,10 +10,14 @@ import BrandMark from "@/components/BrandMark";
 import Composer from "./Composer";
 import EmptyChatState from "./EmptyChatState";
 import MessageBubble from "./MessageBubble";
+import ThreadSidebar from "./ThreadSidebar";
 
 export default function ChatWindow() {
   const router = useRouter();
-  const { messages, sending, send, sendAction, user } = useChat();
+  const {
+    messages, threads, activeThreadId, sending, send, sendAction, user,
+    createThread, selectThread, deleteThread, renameThread,
+  } = useChat();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showJourneys, setShowJourneys] = useState(false);
 
@@ -24,6 +28,7 @@ export default function ChatWindow() {
   async function exitToUsers() {
     await fetch("/api/auth/logout", { method: "POST" });
     localStorage.removeItem("carduka_sid");
+    localStorage.removeItem("carduka_active_thread_id");
     router.push("/login");
     router.refresh();
   }
@@ -39,7 +44,16 @@ export default function ChatWindow() {
   }
 
   return (
-    <div className="mx-auto flex h-screen max-w-4xl flex-col">
+    <div className="flex h-screen w-screen overflow-hidden bg-white">
+      <ThreadSidebar
+        threads={threads}
+        activeThreadId={activeThreadId}
+        onNew={() => { setShowJourneys(false); void createThread(); }}
+        onSelect={(id) => { setShowJourneys(false); void selectThread(id); }}
+        onDelete={(id) => void deleteThread(id)}
+        onRename={(id, title) => void renameThread(id, title)}
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center justify-between border-b border-card-border bg-white px-4 py-3">
         <div className="flex items-center gap-2">
           <BrandMark compact />
@@ -50,6 +64,12 @@ export default function ChatWindow() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => { setShowJourneys(false); void createThread(); }}
+            className="rounded-lg border border-card-border px-2.5 py-1 text-xs text-muted hover:bg-brand/10 md:hidden"
+          >
+            ＋ New
+          </button>
           {user && (
             <span className="hidden text-sm text-muted sm:inline">{user.full_name}</span>
           )}
@@ -91,6 +111,7 @@ export default function ChatWindow() {
       </div>
 
       <Composer onSend={sendMessage} disabled={sending} />
+      </div>
     </div>
   );
 }

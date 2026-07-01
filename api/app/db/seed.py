@@ -2,6 +2,7 @@
 never expire mid-demo, and (re)hashes the two demo users."""
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -55,12 +56,38 @@ def seed_users(db: Session) -> None:
 def _insert_car_if_absent(db: Session, row: dict, *, status: str, sold_at: datetime | None = None) -> None:
     """Per-row idempotency: insert by primary-key id only if absent, so seeding the
     curated + real rows works against an already-seeded database."""
-    if db.get(models.UsedCarListing, row["id"]):
-        return
     data = {"fuel": "Petrol", "status": status, **row}  # row's own fuel wins if present
+    image_urls = list(data.pop("image_urls", []))
+    specs = data.pop("specs", {})
+    data["specs_json"] = json.dumps(specs)
     if sold_at is not None:
         data["sold_at"] = sold_at
-    db.add(models.UsedCarListing(**data))
+    listing = db.get(models.UsedCarListing, row["id"])
+    if listing is None:
+        listing = models.UsedCarListing(**data)
+        db.add(listing)
+    else:
+        # Enrich already-seeded databases when the static scrape gains new facts.
+        for key, value in data.items():
+            if hasattr(listing, key) and value is not None:
+                setattr(listing, key, value)
+    db.flush()
+    if not image_urls and listing.image_url:
+        image_urls = [listing.image_url]
+    existing_orders = set(db.scalars(
+        select(models.UsedCarImage.sort_order)
+        .where(models.UsedCarImage.listing_id == listing.id)
+    ).all())
+    for order, url in enumerate(image_urls):
+        if order in existing_orders:
+            continue
+        db.add(models.UsedCarImage(
+            id=f"uci_{listing.id}_{order:02d}",
+            listing_id=listing.id,
+            url=url,
+            sort_order=order,
+            source="carduka",
+        ))
 
 
 def seed_cars(db: Session) -> None:

@@ -2,17 +2,28 @@ import { kes, km } from "@/lib/format";
 
 import type { CarProps } from "./CarCard";
 
-const ROWS: { label: string; get: (c: CarProps) => string; lowerBetter?: boolean }[] = [
-  { label: "Price", get: (c) => kes(c.price_kes) },
-  { label: "Year", get: (c) => String(c.year) },
-  { label: "Mileage", get: (c) => km(c.mileage_km), lowerBetter: true },
-  { label: "Transmission", get: (c) => c.transmission },
-  { label: "Body", get: (c) => c.body_type },
-  { label: "Condition", get: (c) => c.condition },
-  { label: "Location", get: (c) => c.location },
+const ROWS: { label: string; group: string; get: (c: CarProps) => string }[] = [
+  { label: "Price", group: "price", get: (c) => kes(c.price_kes) },
+  { label: "Year", group: "identity", get: (c) => String(c.year) },
+  { label: "Trim", group: "identity", get: (c) => c.trim || "—" },
+  { label: "Mileage", group: "mileage", get: (c) => km(c.mileage_km) },
+  { label: "Engine", group: "engine", get: (c) => c.engine_cc ? `${c.engine_cc.toLocaleString()} CC` : "—" },
+  { label: "Transmission", group: "transmission", get: (c) => c.transmission },
+  { label: "Fuel", group: "fuel", get: (c) => c.fuel },
+  { label: "Body", group: "body", get: (c) => c.body_type },
+  { label: "Colour", group: "color", get: (c) => c.color || "—" },
+  { label: "Condition", group: "condition", get: (c) => c.condition },
+  { label: "Location", group: "location", get: (c) => c.location },
+  { label: "Monthly estimate", group: "finance", get: (c) => c.monthly_payment_kes ? kes(c.monthly_payment_kes) : "—" },
 ];
 
-export default function ComparisonTable({ cars }: { cars: CarProps[] }) {
+export default function ComparisonTable({
+  cars,
+  fact_groups = [],
+}: {
+  cars: CarProps[];
+  fact_groups?: string[];
+}) {
   const [a, b] = cars;
   const cheaper = a.price_kes <= b.price_kes ? 0 : 1;
   const newer = a.year >= b.year ? 0 : 1;
@@ -39,7 +50,7 @@ export default function ComparisonTable({ cars }: { cars: CarProps[] }) {
           </tr>
         </thead>
         <tbody>
-          {ROWS.map((row) => (
+          {ROWS.filter((row) => fact_groups.length === 0 || fact_groups.includes(row.group)).map((row) => (
             <tr key={row.label} className="border-b border-slate-100 last:border-0">
               <td className="p-3 text-slate-500">{row.label}</td>
               {cars.map((c, idx) => (

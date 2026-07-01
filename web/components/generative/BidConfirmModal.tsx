@@ -12,13 +12,23 @@ interface Props {
   meets_reserve?: boolean;
   signed_proposal: Record<string, unknown>;
   restored?: boolean;
+  action_status?: "confirmed" | "expired";
+  receipt?: Record<string, unknown>;
 }
 
 type Status = "pending" | "placing" | "placed" | "cancelled" | "error";
 
 export default function BidConfirmModal(p: Props) {
-  const [status, setStatus] = useState<Status>("pending");
-  const [message, setMessage] = useState<string>("");
+  const [status, setStatus] = useState<Status>(
+    p.action_status === "confirmed" ? "placed" : p.action_status === "expired" ? "error" : "pending",
+  );
+  const [message, setMessage] = useState<string>(
+    p.action_status === "confirmed"
+      ? "This bid has already been confirmed."
+      : p.action_status === "expired"
+        ? "This bid proposal has expired. Ask me to prepare a new bid."
+        : "",
+  );
 
   const sessionId =
     typeof window !== "undefined" ? localStorage.getItem("carduka_sid") || "" : "";

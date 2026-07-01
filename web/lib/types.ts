@@ -11,7 +11,8 @@ export type ComponentType =
   | "listing_progress"
   | "listing_price_guidance"
   | "listing_publish_receipt"
-  | "follow_up_suggestions";
+  | "follow_up_suggestions"
+  | "vehicle_detail";
 
 export type UIAction =
   | { type: "select_car"; entity_id: string }
@@ -44,6 +45,15 @@ export interface GenComponent {
   props: Record<string, unknown>;
 }
 
+export type MessageBlock =
+  | { type: "text"; text: string }
+  | {
+      type: "component";
+      component_type: ComponentType;
+      schema_version: number;
+      props: Record<string, unknown>;
+    };
+
 export interface TraceEntry {
   kind: string;
   label: string;
@@ -65,7 +75,19 @@ export interface ChatMessage {
   components: GenComponent[];
   trace: TraceEntry[];
   tools: ToolEvent[];
+  blocks?: MessageBlock[];
   streaming?: boolean;
+}
+
+export interface ConversationThread {
+  id: string;
+  title: string;
+  title_locked?: boolean;
+  status: string;
+  summary: string;
+  created_at: string;
+  updated_at: string;
+  last_message_at: string;
 }
 
 export interface DemoUser {

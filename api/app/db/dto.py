@@ -23,6 +23,32 @@ class UserMemoryDTO(BaseModel):
     preferred_body_types: list[str] = Field(default_factory=list)
 
 
+class ConversationThreadDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    user_id: str
+    title: str
+    title_locked: bool
+    status: str
+    summary: str
+    context_json: str
+    created_at: datetime
+    updated_at: datetime
+    last_message_at: datetime
+
+
+class ConversationMessageDTO(BaseModel):
+    id: str
+    thread_id: str
+    role: str
+    status: str
+    sequence_number: int
+    content: list[dict]
+    trace: list[dict] = Field(default_factory=list)
+    tools: list[dict] = Field(default_factory=list)
+    created_at: datetime
+
+
 class UsedCarDTO(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
@@ -38,6 +64,18 @@ class UsedCarDTO(BaseModel):
     body_type: str
     image_url: str
     description: str | None = None
+    trim: str | None = None
+    color: str | None = None
+    engine_cc: int | None = None
+    monthly_payment_kes: int | None = None
+    finance_term_months: int | None = None
+    seller_name: str | None = None
+    location_detail: str | None = None
+    source_listing_id: str | None = None
+    source_url: str | None = None
+    grade_code: str | None = None
+    specs: dict = Field(default_factory=dict)
+    image_urls: list[str] = Field(default_factory=list)
     status: str
     sold_price_kes: int | None = None
     sold_at: datetime | None = None

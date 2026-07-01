@@ -12,6 +12,7 @@ import ListingProgress from "@/components/generative/ListingProgress";
 import ListingPriceGuidance from "@/components/generative/ListingPriceGuidance";
 import ListingPublishReceipt from "@/components/generative/ListingPublishReceipt";
 import PriceVerdictCard from "@/components/generative/PriceVerdictCard";
+import VehicleDetail from "@/components/generative/VehicleDetail";
 
 import type { FollowUpSuggestion, GenComponent, UIAction } from "./types";
 
@@ -27,7 +28,7 @@ export function renderComponent(
     case "car_card_list":
       return <CarCardList key={key} onAction={onAction} cars={(c.props as { cars: CarProps[] }).cars} />;
     case "comparison_table":
-      return <ComparisonTable key={key} cars={(c.props as { cars: CarProps[] }).cars} />;
+      return <ComparisonTable key={key} cars={(c.props as { cars: CarProps[] }).cars} fact_groups={(c.props as { fact_groups?: string[] }).fact_groups} />;
     case "price_verdict":
       return <PriceVerdictCard key={key} {...(p as Parameters<typeof PriceVerdictCard>[0])} />;
     case "financing_calculator":
@@ -56,6 +57,8 @@ export function renderComponent(
           suggestions={(c.props as { suggestions: FollowUpSuggestion[] }).suggestions}
         />
       );
+    case "vehicle_detail":
+      return <VehicleDetail key={key} {...(p as Parameters<typeof VehicleDetail>[0])} />;
     default:
       return null;
   }

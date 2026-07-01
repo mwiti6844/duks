@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 
 from app.db.engine import SessionLocal
-from app.db.models import UsedCarListing
+from app.db.models import UsedCarImage, UsedCarListing
 from app.db.seed import seed_all
 
 
@@ -16,6 +16,7 @@ def test_seed_is_per_row_idempotent_and_augments(client):
     contain BOTH curated hero rows and real scraped rows."""
     with SessionLocal() as db:
         before = _count(db)
+        images_before = db.scalar(select(func.count()).select_from(UsedCarImage))
         # Curated hero row (demo/tests depend on it) and a real scraped row both present.
         assert db.get(UsedCarListing, "car_for_01") is not None  # Subaru Forester (curated)
         assert db.get(UsedCarListing, "car_real_01") is not None  # real scraped listing
@@ -24,6 +25,7 @@ def test_seed_is_per_row_idempotent_and_augments(client):
         seed_all(db)
         after = _count(db)
         assert after == before
+        assert db.scalar(select(func.count()).select_from(UsedCarImage)) == images_before
 
 
 def test_sold_comparables_present(client):

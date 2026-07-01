@@ -22,7 +22,7 @@ Browser ──HTTPS──> web (Next.js BFF, PUBLIC)
                                   ├ deterministic tools (authz + financial rules)
                                   ├ SQLite (curated hero rows + 20 real listings; sold comps)
                                   ├ ChromaDB ephemeral /tmp store (baked ONNX MiniLM, CPU)
-                                  └ Redis (conversation context + pending bids/listing drafts)
+                                  └ Redis (hot thread context + pending bids/listing drafts)
 ```
 
 - **Only `web` is public.** It's a BFF that forwards `/api/*` to the private `api`,
@@ -34,6 +34,12 @@ Browser ──HTTPS──> web (Next.js BFF, PUBLIC)
   actions when clicked. Contextual follow-up cards offer executable next steps such as
   compare, price verdict, financing, bidding, and auction guidance. Redis stores recent
   structured turns so components remain interactive after refresh.
+- **Rich catalogue facts:** the static spreadsheet ingestion normalizes CarDuka source
+  listing IDs/URLs, trim, colour, engine CC, seller display name, detailed location,
+  monthly finance estimate/term, features, full vehicle description, and ordered image
+  galleries. The Discovery agent selects from an allow-listed fact catalog for each
+  question; the LLM never chooses arbitrary SQL columns. Generic searches stay compact,
+  while a selected vehicle can render its full gallery and verified facts.
 - **Bidding (human-in-the-loop):** chat prepares a **signed, expiring** bid proposal
   (HMAC + random `proposal_id`) and streams a confirm modal. Only
   `POST /api/bids/confirm` persists — idempotently, guarded by a UNIQUE `proposal_id`
@@ -47,11 +53,15 @@ Browser ──HTTPS──> web (Next.js BFF, PUBLIC)
   metadata; off-domain questions are declined.
 - **Personas, not permissions:** David (buyer) and Sarah (seller) are display personas
   only — every journey (buy, sell, finance, bid) is open to every authenticated user.
-- **Memory:** Redis holds recent turns and structured session context (active journey,
-  search constraints, displayed IDs, and the focused entity). Confirmed preferences are
-  stored by `user_id` in SQLite and survive new browser sessions. Listings, bids, and
-  prices are always reloaded from the database. Railway requires Redis; the in-memory
-  fallback is limited to local development and tests.
+- **Threads and memory:** SQLite durably stores owner-scoped conversation threads,
+  messages, ordered text/component blocks, summaries, traces, and tool records. Reopening
+  a thread replays the exact validated generative UI instead of asking the LLM to recreate
+  it. Thread titles are generated asynchronously from the actual journey, vehicle, budget,
+  or comparison context during the first turns; a manual rename locks the title. Redis
+  caches active thread context (journey, search constraints, displayed IDs,
+  focused entity) and short-lived pending actions. Confirmed user preferences live in
+  SQLite across all of that user's threads. Railway requires Redis; the in-memory fallback
+  is limited to local development and tests.
 - **Seed data:** curated hero rows guarantee the scripted demo, augmented by **20 real
   CarDuka listings** parsed from a scrape (real prices, descriptions, NCBA CDN images).
   Six "sold" rows are **simulated sales derived from real listings** (synthesized
@@ -99,11 +109,8 @@ API_INTERNAL_URL=http://localhost:8000 npm run dev    # http://localhost:3000
 > First API start downloads the ONNX embedding model unless you build the Docker image
 > (which bakes it in). The readiness page covers this wait.
 
-> **Fresh DB required for v4.** The schema gained columns (`profile_context`, listing
-> `owner_id` / `source_draft_id` / `description`). SQLite `create_all()` does not ALTER
-> existing tables, so delete any old demo DB before the first v4 run:
-> `find /tmp -name 'carduka*.db' -delete`. On Railway the SQLite DB is ephemeral, so a
-> redeploy is a fresh DB automatically.
+> Schema upgrades run through Alembic at API startup. Existing Redis-only conversations
+> are imported once into a durable thread when their legacy session is opened.
 
 ## Demo flow
 

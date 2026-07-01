@@ -5,6 +5,7 @@ references ("compare the first two") resolve from session display state, never t
 """
 from __future__ import annotations
 
+import json
 import re
 import time
 from collections.abc import Callable
@@ -224,6 +225,41 @@ def _emit_car_suggestions(car, sid: str, deps: Deps, emit: Emit) -> None:
     ))
 
 
+def _emit_vehicle_detail(
+    state: GraphState, deps: Deps, emit: Emit, car
+) -> None:
+    """Select and answer against explicit, allow-listed facts for one DB row."""
+    emit(ToolStarted(
+        name="select_vehicle_facts",
+        params={"car_id": car.id, "question": state["message"]},
+    ))
+    t0 = time.time()
+    fields = tools.select_vehicle_fact_fields(state["message"], deps.llm)
+    facts = tools.vehicle_facts(car, fields)
+    emit(ToolCompleted(
+        name="select_vehicle_facts",
+        ms=int((time.time() - t0) * 1000),
+        detail={"car_id": car.id, "fields": fields},
+    ))
+    emit(Trace(
+        kind="tool",
+        label="vehicle_fact_selection",
+        detail={"car_id": car.id, "fields": fields},
+    ))
+    emit(ComponentReady(type="vehicle_detail", props={
+        "car": tools.car_to_props(car, include_gallery=True),
+        "facts": facts,
+        "image_urls": car.image_urls,
+    }))
+    _stream_prose(
+        state,
+        deps,
+        emit,
+        prompt_name="discovery_detail.v1",
+        user_context=tools.vehicle_facts_context(car, fields),
+    )
+
+
 def handle_search(state: GraphState, deps: Deps, emit: Emit) -> None:
     ent = state.get("entities", {})
     sid = state["session_id"]
@@ -252,22 +288,16 @@ def handle_search(state: GraphState, deps: Deps, emit: Emit) -> None:
             focused_entity_type="used_car",
             focused_entity_id=car.id,
         )
-        emit(ComponentReady(type="car_card", props=tools.car_to_props(car)))
-        details = (
-            f"Selected listing from the database: ID {car.id}; {car.year} "
-            f"{car.make} {car.model}; KES {car.price_kes:,}; {car.mileage_km:,} km; "
-            f"{car.transmission}; {car.fuel}; {car.condition}; {car.body_type}; "
-            f"located in {car.location}."
-        )
-        if car.description:
-            details += f" Description: {car.description}"
-        _stream_prose(
-            state, deps, emit, prompt_name="discovery_detail.v1", user_context=details
-        )
+        _emit_vehicle_detail(state, deps, emit, car)
         _emit_car_suggestions(car, sid, deps, emit)
         return
 
-    if _is_detail_request(state["message"]):
+    if _is_detail_request(state["message"]) or (
+        tools.is_vehicle_fact_question(state["message"])
+        and not _search_constraints(ent)
+        and not ent.get("remove_constraints")
+        and session_context.get("focused_entity_type") == "used_car"
+    ):
         emit(ToolStarted(name="get_displayed_car", params={"reference": state["message"]}))
         t0 = time.time()
         car = _resolve_displayed_car(state, deps)
@@ -283,18 +313,7 @@ def handle_search(state: GraphState, deps: Deps, emit: Emit) -> None:
                 focused_entity_type="used_car",
                 focused_entity_id=car.id,
             )
-            emit(ComponentReady(type="car_card", props=tools.car_to_props(car)))
-            details = (
-                f"Selected listing from the database: ID {car.id}; {car.year} "
-                f"{car.make} {car.model}; KES {car.price_kes:,}; "
-                f"{car.mileage_km:,} km; {car.transmission}; {car.fuel}; "
-                f"{car.condition}; {car.body_type}; located in {car.location}."
-            )
-            if car.description:
-                details += f" Description: {car.description}"
-            _stream_prose(
-                state, deps, emit, prompt_name="discovery_detail.v1", user_context=details
-            )
+            _emit_vehicle_detail(state, deps, emit, car)
             _emit_car_suggestions(car, sid, deps, emit)
             return
 
@@ -512,8 +531,18 @@ def handle_compare(state: GraphState, deps: Deps, emit: Emit) -> None:
         focused_entity_type="used_car",
         focused_entity_id=cars[0].id,
     )
-    emit(ComponentReady(type="comparison_table",
-                        props={"cars": [tools.car_to_props(c) for c in cars]}))
+    comparison_groups = [
+        "identity", "price", "mileage", "transmission", "body", "condition", "location"
+    ]
+    if tools.is_vehicle_fact_question(state["message"]):
+        comparison_groups.extend(
+            tools.select_vehicle_fact_fields(state["message"], deps.llm)
+        )
+    comparison_groups = list(dict.fromkeys(comparison_groups))
+    emit(ComponentReady(type="comparison_table", props={
+        "cars": [tools.car_to_props(c) for c in cars],
+        "fact_groups": comparison_groups,
+    }))
     a, b = cars[0], cars[1]
     cheaper = a if a.price_kes <= b.price_kes else b
     newer = a if a.year >= b.year else b
@@ -539,17 +568,14 @@ def handle_compare(state: GraphState, deps: Deps, emit: Emit) -> None:
             f"the {lower_mileage.year} {lower_mileage.make} {lower_mileage.model} "
             f"has {mileage_gap:,} fewer kilometres"
         )
-    comparison_context = (
-        "Compared database rows:\n"
-        + "\n".join(
-            f"- ID {car.id}: {car.year} {car.make} {car.model}; "
-            f"KES {car.price_kes:,}; {car.mileage_km:,} km; "
-            f"{car.transmission}; {car.body_type}; {car.condition}; {car.location}"
+    comparison_context = json.dumps({
+        "requested_fact_groups": comparison_groups,
+        "cars": [
+            {"id": car.id, "facts": tools.vehicle_facts(car, comparison_groups)}
             for car in cars
-        )
-        + "\nDeterministic trade-offs:\n- "
-        + "\n- ".join(tradeoffs)
-    )
+        ],
+        "deterministic_tradeoffs": tradeoffs,
+    }, ensure_ascii=False)
     _stream_prose(
         state,
         deps,

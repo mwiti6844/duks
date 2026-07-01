@@ -3,14 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { streamChat } from "./sse";
-import type { ChatMessage, DemoUser, GenComponent, UIAction } from "./types";
+import type {
+  ChatMessage,
+  ConversationThread,
+  DemoUser,
+  GenComponent,
+  MessageBlock,
+  UIAction,
+} from "./types";
 
 function uid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-function getSessionId(): string {
-  if (typeof window === "undefined") return "ssr";
+function legacySessionId(): string {
   let sid = localStorage.getItem("carduka_sid");
   if (!sid) {
     sid = "sess_" + uid();
@@ -19,11 +25,37 @@ function getSessionId(): string {
   return sid;
 }
 
+function messageFromPersisted(item: {
+  id: string;
+  role: "user" | "assistant";
+  content: MessageBlock[];
+  trace?: ChatMessage["trace"];
+  tools?: ChatMessage["tools"];
+}): ChatMessage {
+  const blocks = item.content || [];
+  return {
+    id: item.id,
+    role: item.role,
+    text: blocks.filter((block) => block.type === "text").map((block) => block.text).join(""),
+    components: blocks
+      .filter((block) => block.type === "component")
+      .map((block) => ({
+        type: block.component_type,
+        props: block.props,
+      })) as GenComponent[],
+    blocks,
+    trace: item.trace || [],
+    tools: item.tools || [],
+  };
+}
+
 export function useChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [threads, setThreads] = useState<ConversationThread[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [user, setUser] = useState<DemoUser | null>(null);
-  const sidRef = useRef<string>("");
+  const threadRef = useRef<string>("");
   const bootstrapped = useRef(false);
   const sendingRef = useRef(false);
 
@@ -36,176 +68,237 @@ export function useChat() {
     });
   }, []);
 
+  const refreshThreads = useCallback(async () => {
+    const res = await fetch("/api/threads?limit=50", { cache: "no-store" });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items = (data.items || []) as ConversationThread[];
+    setThreads(items);
+    return items;
+  }, []);
+
+  const loadThread = useCallback(async (threadId: string) => {
+    const res = await fetch(`/api/threads/${encodeURIComponent(threadId)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    setMessages((data.messages || []).map(messageFromPersisted));
+    threadRef.current = threadId;
+    setActiveThreadId(threadId);
+    localStorage.setItem("carduka_active_thread_id", threadId);
+    // Existing interactive components still use this compatibility key.
+    localStorage.setItem("carduka_sid", threadId);
+    return true;
+  }, []);
+
+  const createThread = useCallback(async () => {
+    const res = await fetch("/api/threads", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) throw new Error("Could not create a conversation");
+    const thread = (await res.json()) as ConversationThread;
+    setThreads((current) => [thread, ...current]);
+    setMessages([]);
+    threadRef.current = thread.id;
+    setActiveThreadId(thread.id);
+    localStorage.setItem("carduka_active_thread_id", thread.id);
+    localStorage.setItem("carduka_sid", thread.id);
+    return thread.id;
+  }, []);
+
+  const selectThread = useCallback(async (threadId: string) => {
+    if (sendingRef.current || threadId === threadRef.current) return;
+    await loadThread(threadId);
+  }, [loadThread]);
+
+  const deleteThread = useCallback(async (threadId: string) => {
+    if (sendingRef.current) return;
+    const res = await fetch(`/api/threads/${encodeURIComponent(threadId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) return;
+    const remaining = threads.filter((thread) => thread.id !== threadId);
+    setThreads(remaining);
+    if (threadRef.current === threadId) {
+      const next = remaining[0];
+      if (next) {
+        await loadThread(next.id);
+      } else {
+        threadRef.current = "";
+        setActiveThreadId(null);
+        setMessages([]);
+        localStorage.removeItem("carduka_active_thread_id");
+        localStorage.removeItem("carduka_sid");
+      }
+    }
+  }, [loadThread, threads]);
+
+  const renameThread = useCallback(async (threadId: string, title: string) => {
+    const res = await fetch(`/api/threads/${encodeURIComponent(threadId)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    if (!res.ok) return;
+    const updated = (await res.json()) as ConversationThread;
+    setThreads((current) =>
+      current.map((thread) => thread.id === threadId ? updated : thread),
+    );
+  }, []);
+
   const sendInternal = useCallback(
     async (text: string, action?: UIAction) => {
       const trimmed = text.trim();
       if (!trimmed || sendingRef.current) return;
-      const sid = sidRef.current;
+      let threadId = threadRef.current;
+      if (!threadId) threadId = await createThread();
       sendingRef.current = true;
       setSending(true);
+      const userBlock: MessageBlock = { type: "text", text: trimmed };
       setMessages((prev) => [
         ...prev,
-        { id: uid(), role: "user", text: trimmed, components: [], trace: [], tools: [] },
-        { id: uid(), role: "assistant", text: "", components: [], trace: [], tools: [], streaming: true },
+        {
+          id: uid(), role: "user", text: trimmed, components: [],
+          blocks: [userBlock], trace: [], tools: [],
+        },
+        {
+          id: uid(), role: "assistant", text: "", components: [],
+          blocks: [], trace: [], tools: [], streaming: true,
+        },
       ]);
       try {
-        await streamChat(trimmed, sid, (ev) => {
+        await streamChat(trimmed, threadId, (ev) => {
           if (ev.event === "token") {
-            updateLast((m) => ({ ...m, text: m.text + (ev.data.text as string) }));
+            const delta = ev.data.text as string;
+            updateLast((message) => {
+              const blocks = [...(message.blocks || [])];
+              const last = blocks[blocks.length - 1];
+              if (last?.type === "text") last.text += delta;
+              else blocks.push({ type: "text", text: delta });
+              return { ...message, text: message.text + delta, blocks };
+            });
           } else if (ev.event === "component") {
-            updateLast((m) => ({
-              ...m,
-              components: [...m.components, ev.data as unknown as GenComponent],
+            const component = ev.data as unknown as GenComponent;
+            updateLast((message) => ({
+              ...message,
+              components: [...message.components, component],
+              blocks: [
+                ...(message.blocks || []),
+                {
+                  type: "component",
+                  component_type: component.type,
+                  schema_version: 1,
+                  props: component.props,
+                },
+              ],
             }));
           } else if (ev.event === "trace") {
-            updateLast((m) => ({ ...m, trace: [...m.trace, ev.data as never] }));
+            updateLast((message) => ({
+              ...message,
+              trace: [...message.trace, ev.data as never],
+            }));
           } else if (ev.event === "tool") {
-            updateLast((m) => ({ ...m, tools: [...m.tools, ev.data as never] }));
+            updateLast((message) => ({
+              ...message,
+              tools: [...message.tools, ev.data as never],
+            }));
           } else if (ev.event === "error") {
-            updateLast((m) => ({ ...m, text: m.text + `\n[error: ${ev.data.message}]` }));
+            const errorText = `\n[error: ${ev.data.message}]`;
+            updateLast((message) => ({
+              ...message,
+              text: message.text + errorText,
+              blocks: [...(message.blocks || []), { type: "text", text: errorText }],
+            }));
           }
         }, action);
-      } catch (e) {
-        if (e instanceof Error && e.message.includes("(401)")) {
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("(401)")) {
           localStorage.removeItem("carduka_sid");
+          localStorage.removeItem("carduka_active_thread_id");
           window.location.href = "/login";
           return;
         }
-        updateLast((m) => ({
-          ...m,
-          text: m.text || `Something went wrong: ${e instanceof Error ? e.message : e}`,
-        }));
+        updateLast((message) => {
+          const errorText = `Something went wrong: ${
+            error instanceof Error ? error.message : error
+          }`;
+          return {
+            ...message,
+            text: message.text || errorText,
+            blocks: message.blocks?.length
+              ? message.blocks
+              : [{ type: "text", text: errorText }],
+          };
+        });
       } finally {
         sendingRef.current = false;
-        updateLast((m) => ({ ...m, streaming: false }));
+        updateLast((message) => ({ ...message, streaming: false }));
         setSending(false);
+        await refreshThreads();
+        // Semantic titles are generated after the streamed response completes.
+        window.setTimeout(() => void refreshThreads(), 1500);
+        window.setTimeout(() => void refreshThreads(), 5000);
       }
     },
-    [updateLast],
+    [createThread, refreshThreads, updateLast],
   );
 
-  const send = useCallback(
-    (text: string) => sendInternal(text),
-    [sendInternal],
-  );
-
+  const send = useCallback((text: string) => sendInternal(text), [sendInternal]);
   const sendAction = useCallback(
     (label: string, action: UIAction) => sendInternal(label, action),
     [sendInternal],
   );
 
-  // Bootstrap on mount: restore user and pending work. A fresh session remains
-  // empty so the user chooses a journey card or writes the first message.
   useEffect(() => {
     if (bootstrapped.current) return;
     bootstrapped.current = true;
-    sidRef.current = getSessionId();
-    const sid = sidRef.current;
     (async () => {
       try {
-        const res = await fetch(`/api/session/bootstrap?session_id=${encodeURIComponent(sid)}`, {
-          cache: "no-store",
-        });
-        if (res.status === 401) {
+        const available = await refreshThreads();
+        const saved = localStorage.getItem("carduka_active_thread_id");
+        const selected = available.find((thread) => thread.id === saved) || available[0];
+        const bootstrapId = selected?.id || legacySessionId();
+        const bootstrap = await fetch(
+          `/api/session/bootstrap?session_id=${encodeURIComponent(bootstrapId)}`,
+          { cache: "no-store" },
+        );
+        if (bootstrap.status === 401) {
           localStorage.removeItem("carduka_sid");
+          localStorage.removeItem("carduka_active_thread_id");
           window.location.href = "/login";
           return;
         }
-        if (res.ok) {
-          const data = await res.json();
-          setUser(data.user);
-          const restored: ChatMessage[] = [];
-          const persisted = data.turns?.length ? data.turns : data.history || [];
-          for (const h of persisted) {
-            restored.push({
-              id: h.id || uid(),
-              role: h.role,
-              text: h.text ?? h.content,
-              components: h.components || [],
-              trace: [],
-              tools: [],
-            });
+        if (bootstrap.ok) {
+          const bootstrapData = await bootstrap.json();
+          setUser(bootstrapData.user);
+          if (!selected && bootstrapData.thread_id) {
+            await refreshThreads();
+            await loadThread(bootstrapData.thread_id);
+            return;
           }
-          if (data.pending_bid) {
-            // Restore the unconfirmed bid modal after a refresh.
-            restored.push({
-              id: uid(),
-              role: "assistant",
-              text: "You have a pending bid awaiting confirmation:",
-              components: [
-                {
-                  type: "bid_confirm_modal",
-                  props: {
-                    auction: data.pending_bid.auction,
-                    signed_proposal: data.pending_bid.signed_proposal,
-                    amount_kes: data.pending_bid.amount_kes,
-                    meets_reserve: data.pending_bid.meets_reserve,
-                    restored: true,
-                  },
-                },
-              ],
-              trace: [],
-              tools: [],
-            });
-          }
-          if (data.listing_draft && data.listing_draft.status === "ready_to_publish") {
-            // Resume an unpublished reviewed sell flow after a refresh.
-            const d = data.listing_draft;
-            restored.push({
-              id: uid(),
-              role: "assistant",
-              text: "You have an unpublished listing:",
-              components: [
-                {
-                  type: "listing_summary",
-                  props: {
-                    ...d.fields,
-                    draft_id: d.draft_id,
-                    signed_draft: d.signed,
-                    revision: d.revision,
-                    status: d.status,
-                    progress: 100,
-                    validation: d.validation || [],
-                    guidance: d.guidance || {},
-                    images: d.images || [],
-                    mode: d.mode || "create",
-                    restored: true,
-                  },
-                },
-              ],
-              trace: [],
-              tools: [],
-            });
-          } else if (data.listing_draft && data.listing_draft.status === "collecting") {
-            const d = data.listing_draft;
-            const missing = Object.entries(d.fields || {})
-              .filter(([, value]) => !value)
-              .map(([key]) => key);
-            restored.push({
-              id: uid(),
-              role: "assistant",
-              text: "Your saved listing draft is ready to continue. Tell me the next detail when you are ready.",
-              components: [{
-                type: "listing_progress",
-                props: {
-                  draft_id: d.draft_id,
-                  percent: d.progress || 0,
-                  missing_fields: d.missing_fields || missing,
-                  status: d.status,
-                },
-              }],
-              trace: [],
-              tools: [],
-            });
-          }
-          setMessages(restored);
         }
+        if (selected) await loadThread(selected.id);
       } catch {
-        /* ignore */
+        /* Readiness page and composer surface connectivity failures. */
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadThread, refreshThreads]);
 
-  return { messages, sending, send, sendAction, user, sessionId: sidRef };
+  return {
+    messages,
+    threads,
+    activeThreadId,
+    sending,
+    send,
+    sendAction,
+    user,
+    createThread,
+    selectThread,
+    deleteThread,
+    renameThread,
+    sessionId: threadRef,
+  };
 }

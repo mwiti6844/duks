@@ -1,5 +1,5 @@
 import { renderComponent } from "@/lib/componentRegistry";
-import type { ChatMessage, UIAction } from "@/lib/types";
+import type { ChatMessage, GenComponent, UIAction } from "@/lib/types";
 
 import TracePanel from "./TracePanel";
 
@@ -11,6 +11,17 @@ export default function MessageBubble({
   onAction?: (label: string, action: UIAction) => void;
 }) {
   const isUser = message.role === "user";
+  const blocks = message.blocks?.length
+    ? message.blocks
+    : [
+        ...(message.text ? [{ type: "text" as const, text: message.text }] : []),
+        ...message.components.map((component) => ({
+          type: "component" as const,
+          component_type: component.type,
+          schema_version: 1,
+          props: component.props,
+        })),
+      ];
 
   if (isUser) {
     return (
@@ -28,17 +39,22 @@ export default function MessageBubble({
         🤖
       </div>
       <div className="min-w-0 flex-1 space-y-3">
-        {message.text && (
-          <div className="prose-sm whitespace-pre-wrap text-ink">
-            {message.text}
-            {message.streaming && !message.text && <TypingDots />}
-          </div>
+        {blocks.map((block, i) =>
+          block.type === "text" ? (
+            <div key={i} className="prose-sm max-w-3xl whitespace-pre-wrap text-ink">
+              {block.text}
+            </div>
+          ) : (
+            <div key={i}>
+              {renderComponent(
+                { type: block.component_type, props: block.props } as GenComponent,
+                `${message.id}-${i}`,
+                onAction,
+              )}
+            </div>
+          ),
         )}
-        {message.streaming && !message.text && message.components.length === 0 && <TypingDots />}
-
-        {message.components.map((c, i) => (
-          <div key={i}>{renderComponent(c, `${message.id}-${i}`, onAction)}</div>
-        ))}
+        {message.streaming && blocks.length === 0 && <TypingDots />}
 
         <TracePanel trace={message.trace} tools={message.tools} />
       </div>

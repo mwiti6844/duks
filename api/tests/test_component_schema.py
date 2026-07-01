@@ -51,6 +51,23 @@ def test_valid_component_passes_through():
     assert "knowledge_answer" in joined
 
 
+def test_vehicle_detail_component_is_schema_validated():
+    car = {
+        "id": "car_1", "make": "Toyota", "model": "Axio", "year": 2016,
+        "price_kes": 1_200_000, "mileage_km": 90_000,
+        "transmission": "Automatic", "fuel": "Petrol", "location": "Nairobi",
+        "condition": "Good", "body_type": "Sedan", "image_url": "",
+        "description": None, "image_urls": [],
+    }
+    comp = validate_component(ComponentType.VEHICLE_DETAIL, {
+        "car": car,
+        "facts": {"engine": {"engine_cc": 1500}},
+        "image_urls": [],
+    })
+    assert comp is not None
+    assert comp.type == ComponentType.VEHICLE_DETAIL
+
+
 def test_invalid_known_component_props_are_dropped():
     frames = list(events_to_sse([ComponentReady(type="car_card", props={"id": "incomplete"})]))
     joined = "".join(frames)
